@@ -1,0 +1,71 @@
+name: build
+
+# Every push to main and every PR: test and build, keep the package as
+# a workflow artifact. A v* tag (e.g. v0.3.0) also publishes a GitHub
+# Release with IcesusEffects.mpackage attached, which is what
+# releases/latest/download/IcesusEffects.mpackage serves.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check versions agree
+        run: |
+          pkg=$(sed -n 's/^version = "\(.*\)"$/\1/p' package/config.lua)
+          lua=$(sed -n 's/^fx.version = "\(.*\)"$/\1/p' src/data.lua)
+          echo "package/config.lua: $pkg, src/data.lua: $lua"
+          if [ -z "$pkg" ] || [ "$pkg" != "$lua" ]; then
+            echo "::error::version in package/config.lua ($pkg) and fx.version in src/data.lua ($lua) differ"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "${GITHUB_REF_NAME#v}" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package version $pkg"
+            exit 1
+          fi
+
+      # Mudlet embeds Lua 5.1; LuaJIT runs the tests with the same semantics.
+      - name: Install LuaJIT
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq luajit
+
+      - name: Unit tests
+        run: luajit tests/test_effects.lua
+
+      - name: Build package
+        run: ./build/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IcesusEffects.mpackage
+          path: dist/IcesusEffects.mpackage
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: IcesusEffects.mpackage
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/IcesusEffects.mpackage \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Icesus Effects $GITHUB_REF_NAME" \
+            --generate-notes
