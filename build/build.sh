@@ -19,7 +19,7 @@ rm -f "$OUT"
 python3 - "$OUT" <<'PY'
 import sys, zipfile
 out = sys.argv[1]
-SOURCES = ["data", "ui", "controller"]
+SOURCES = ["builtins", "data", "ui", "controller"]
 
 scripts = []
 for name in SOURCES:

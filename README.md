@@ -36,10 +36,30 @@ file.
 To install your own build, run `./build/build.sh` and install
 `dist/IcesusEffects.mpackage` the same way.
 
+## Updating
+
+`icefx update` checks GitHub for the latest release. If that release is
+newer than the version you have, it downloads and installs it.
+Otherwise it tells you that you're up to date.
+
+`icefx reload` reinstalls the package. You can tell it where to
+install from:
+
+| command | installs from |
+| ------- | ------------- |
+| `icefx reload` | the file or URL saved last time, or the latest release if nothing is saved |
+| `icefx reload latest` | the latest release; the saved file or URL stays saved |
+| `icefx reload <file or URL>` | that `.mpackage` file or `https://` URL, which is then saved for next time |
+
+The package downloads a URL before it uninstalls anything. If the
+download fails, the version you have keeps running. Reloading keeps
+your effects, recorded runs, settings and active effects.
+
 ## How it works
 
-Each effect has three kinds of message. A message is part of one line
-of game output:
+Each effect has three kinds of message. A message is the start of one
+line of game output. It only matches when the line begins with it, so
+the same words inside a say or a channel line don't set it off:
 
 | kind      | what it does |
 | --------- | ------------ |
@@ -66,14 +86,51 @@ struck through, until you click it or type `icefx clear`. When you start
 it again, the same button becomes active again.
 
 **Multi-line messages.** The game wraps long messages over several
-lines, and a pattern can only match one line. Use a distinctive part of
-the first line. For example, the start message of Essence of the nether
-is matched by `You are suddenly enveloped into coldness of netherplane`.
+lines, and a message can only match one line. Use the beginning of the
+first line. For example, the start message of Essence of the nether is
+matched by `You are suddenly enveloped into coldness of netherplane`.
+
+**Lines that start with a name.** Some messages begin with whoever cast
+the spell, for example `Kili creates a subdimensional rift around you…`.
+Plain text can't match those, so use a regex:
+`re:^[A-Z][a-z]+ creates a subdimensional rift around you`. A regex is
+used exactly as written. Start it with `^` to keep it bound to the
+start of the line.
 
 ## Adding effects
 
-The package includes a few effects. You add others with `icefx add`
-and give them messages with `icefx config`:
+The package includes these effects:
+
+- Aspect of elements
+- Elemental shield of water
+- Embrace of the rimewind
+- Essence of the nether
+- Flagellation
+- Fleshcraft
+- Gift of elements
+- Haste
+- Inertia bubble
+- Life boost
+- Mantle of darkness
+- Martyrdom
+- Presence of the dark master
+- Senses of a beast
+- Shadow barrier
+- Slow
+- Spectral claws
+- Sphere of protection
+- Sphere of warding
+- Thirst for knowledge
+- Unfold mind
+
+Many of their messages come from
+[IceTF](https://github.com/icekili/IceTF), Kili's TinyFugue scripts for
+Icesus. The ones from IceTF haven't been checked against the current
+game, so a message may have changed since. If an effect doesn't start
+or stop when it should, fix the message with `icefx config`.
+
+You add other effects with `icefx add` and give them messages with
+`icefx config`:
 
 ```
 icefx add Stone skin
@@ -150,7 +207,8 @@ icefx clear                        dismiss expired buttons
 icefx forget <effect>              wipe its recorded runs
 icefx migrate [<effect>|all]       compare built-ins with the package / take its version
 icefx test <line>                  which messages a line matches
-icefx reload [path]                reinstall the package from a .mpackage
+icefx update                       install the latest release if it is newer
+icefx reload [latest|<file>|<url>] reinstall (see Updating)
 ```
 
 ## Fixing the state by hand
@@ -212,8 +270,8 @@ accident.
 
 Before the reset, the old data is saved to `IcesusEffects.backup.lua`
 in your profile directory. To undo the reset, copy that file over
-`IcesusEffects.lua` and run `icefx reload`. The `icefx reload` package
-path is kept.
+`IcesusEffects.lua` and run `icefx reload`. The saved `icefx reload`
+source is kept.
 
 ## Syncing with `effects`
 
@@ -277,19 +335,20 @@ luajit tests/test_effects.lua   # unit tests, mocked Mudlet API (Mudlet runs Lua
 ```
 
 After a rebuild, run `icefx reload <path to dist/IcesusEffects.mpackage>`
-in Mudlet. The path is remembered, so after that `icefx reload` is
+in Mudlet. The path is saved, so after that `icefx reload` is
 enough. Your effect definitions, saved runs and active effects are kept.
 
-The source is in `src/`, as three files that load in this order:
+The source is in `src/`, as four files that load in this order:
 
 | file | what it holds |
 | ---- | ------------- |
+| `builtins.lua` | the effects that ship with the package (`fx.BUILTIN`); data only |
 | `data.lua` | effect definitions, saved runs and estimates, on/off state; no Mudlet UI |
 | `ui.lua` | the floating buttons: what each one shows (`fx.view`) and the Geyser widgets (`fx.render`) |
 | `controller.lua` | triggers, the `effects` listing, `icefx` commands, install and teardown |
 
 Functions in `data.lua` only change state. The controller calls
-`fx.render()` after each change. The build script wraps the three
+`fx.render()` after each change. The build script wraps the four
 files and the `icefx` alias into the package XML.
 
 ## License

@@ -33,12 +33,7 @@ function fx.rebuildTriggers()
           fx.render()
         end
         -- A bad regex must not take every other trigger down with it.
-        local ok, id
-        if pat:sub(1, 3) == "re:" then
-          ok, id = pcall(tempRegexTrigger, pat:sub(4), fn)
-        else
-          ok, id = pcall(tempTrigger, pat, fn)
-        end
+        local ok, id = pcall(tempRegexTrigger, fx.messageRegex(pat), fn)
         if ok and id then
           fx.triggerIds[#fx.triggerIds + 1] = id
         else
@@ -429,7 +424,8 @@ local HELP = {
   "icefx forget <effect>              wipe its recorded runs",
   "icefx migrate [<effect>|all]       compare built-ins with the package / take its version",
   "icefx test <line>                  which messages a line matches",
-  "icefx reload [path]                reinstall the package from a .mpackage",
+  "icefx update                       install the latest release if it is newer",
+  "icefx reload [latest|<file>|<url>] reinstall: saved source, else latest release",
   "",
   "<white>settings<reset>",
   'effect.label="Name"                display name',
@@ -443,7 +439,7 @@ local HELP = {
   "alert.warn=10|off                  pulse the button 10 s before the estimated end",
   "",
   "<grey><effect> is its number in icefx list, its name, or the start of it.",
-  "A message is part of one line of output; start it with re: for a regex.<reset>",
+  "A message is the start of one line of output; start it with re: for a regex.<reset>",
 }
 
 local function cmdHelp()
@@ -453,27 +449,115 @@ local function cmdHelp()
   end
 end
 
--- Reinstall from a built .mpackage. The path is remembered, so after
--- the first time `icefx reload` alone is enough.
-function fx.reinstall(path)
-  path = path and trim(path) or ""
-  if path == "" then path = fx.data.packagePath or "" end
-  if path == "" then
-    return say("<red>usage: icefx reload <path to IcesusEffects.mpackage><reset> (remembered after the first time)")
+-- =============================================================
+-- Reload and update — reinstall from a local build, a URL, or the
+-- latest GitHub release.
+-- =============================================================
+fx.REPO        = "destor/icefx"
+fx.RELEASE_URL = "https://github.com/" .. fx.REPO .. "/releases/latest/download/IcesusEffects.mpackage"
+fx.LATEST_API  = "https://api.github.com/repos/" .. fx.REPO .. "/releases/latest"
+
+-- Download url to path, then call onDone(path) or onErr(message).
+-- The handlers live outside the package, so they survive a reinstall.
+local function fetch(url, path, onDone, onErr)
+  local doneH, errH
+  local function cleanup()
+    if doneH then pcall(killAnonymousEventHandler, doneH) end
+    if errH then pcall(killAnonymousEventHandler, errH) end
   end
-  path = path:gsub("^~", os.getenv("HOME") or "~")
-  if not (io.exists and io.exists(path)) then
-    return say("<red>no such file: " .. path .. "<reset>")
-  end
-  fx.data.packagePath = path
-  fx.save()
-  say("reinstalling from " .. path)
+  doneH = registerAnonymousEventHandler("sysDownloadDone", function(_, file)
+    if file ~= path then return end
+    cleanup()
+    onDone(path)
+  end)
+  errH = registerAnonymousEventHandler("sysDownloadError", function(_, msg, file)
+    if file and file ~= path then return end
+    cleanup()
+    onErr(tostring(msg))
+  end)
+  local ok, err = pcall(downloadFile, path, url)
+  if not ok then cleanup(); onErr(tostring(err)) end
+end
+
+-- Swap the installed package for the .mpackage at path. Deferred:
+-- this can run inside the package's own alias, which the uninstall
+-- removes.
+local function installFrom(path)
   fx.reloading = true
-  -- Deferred: this runs inside the package's own alias, which the
-  -- uninstall removes.
   tempTimer(0, function()
     uninstallPackage(fx.PACKAGE)
     installPackage(path)
+  end)
+end
+
+-- Downloads go to their own folder under the exact package file name,
+-- so Mudlet sees the same package whatever the URL was called.
+local function downloadPath()
+  local dir = getMudletHomeDir() .. "/IcesusEffects.download"
+  if lfs and lfs.mkdir then pcall(lfs.mkdir, dir) end
+  return dir .. "/IcesusEffects.mpackage"
+end
+
+-- `icefx reload [latest|<file>|<url>]`:
+--   (nothing)  the saved file or URL, else the latest release
+--   latest     the latest release, leaving the saved source alone
+--   <source>   that file or URL, saved for next time
+-- A URL is downloaded first, and the installed package is only
+-- replaced once the download succeeded.
+function fx.reinstall(arg)
+  arg = trim(arg or "")
+  local src, remember
+  if arg:lower() == "latest" then
+    src = fx.RELEASE_URL
+  elseif arg ~= "" then
+    src, remember = arg, true
+  else
+    src = fx.data.packagePath or fx.RELEASE_URL
+  end
+
+  if src:match("^https?://") then
+    say("downloading " .. src)
+    fetch(src, downloadPath(), function(path)
+      if remember then fx.data.packagePath = src; fx.save() end
+      say("downloaded; reinstalling")
+      installFrom(path)
+    end, function(msg)
+      say("<red>download failed: " .. msg .. "<reset> — the installed package is unchanged")
+    end)
+    return
+  end
+
+  local path = src:gsub("^~", os.getenv("HOME") or "~")
+  if not (io.exists and io.exists(path)) then
+    return say("<red>no such file: " .. path .. "<reset>")
+  end
+  if remember then fx.data.packagePath = path; fx.save() end
+  say("reinstalling from " .. path)
+  installFrom(path)
+end
+
+-- `icefx update`: ask GitHub for the latest release and install it if
+-- it is newer than this version.
+function fx.update()
+  local path = getMudletHomeDir() .. "/IcesusEffects.latest.json"
+  say("checking " .. fx.REPO .. " for a newer release")
+  fetch(fx.LATEST_API, path, function()
+    local f = io.open(path, "r")
+    local body = f and f:read("*a") or ""
+    if f then f:close() end
+    pcall(os.remove, path)
+    local latest = body:match('"tag_name"%s*:%s*"v?([^"]+)"')
+    if not latest then
+      return say("<red>couldn't read the latest release from GitHub<reset>")
+    end
+    if fx.versionNewer(latest, fx.version) then
+      say(string.format("v%s is out (you have v%s) — installing", latest, fx.version))
+      fx.reinstall("latest")
+    else
+      say(string.format("up to date: v%s (latest release v%s)", fx.version, latest))
+    end
+  end, function(msg)
+    say("<red>couldn't reach GitHub: " .. msg .. "<reset>")
   end)
 end
 
@@ -493,6 +577,7 @@ function fx.command(args)
   if verb == "show" then return cmdShow(rest) end
   if verb == "config" or verb == "set" then return cmdConfig(rest) end
   if verb == "reload" then return fx.reinstall(rest) end
+  if verb == "update" then return fx.update() end
   if verb == "migrate" then return cmdMigrate(rest) end
 
   if verb == "activate" or verb == "deactivate" then

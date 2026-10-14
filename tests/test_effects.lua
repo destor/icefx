@@ -1,5 +1,5 @@
 #!/usr/bin/env luajit
--- Unit tests for src/{data,ui,controller}.lua under a mocked Mudlet API.
+-- Unit tests for src/{builtins,data,ui,controller}.lua under a mocked Mudlet API.
 --
 -- Mudlet runs Lua 5.1, so run these with LuaJIT:
 --   luajit tests/test_effects.lua
@@ -27,8 +27,21 @@ function getBorderBottom() return W.borders.bottom end
 function getBorderLeft() return W.borders.left end
 function cecho(s) W.echoes[#W.echoes + 1] = s end
 function raiseEvent(name, ...) W.events[#W.events + 1] = { name, ... } end
-function registerAnonymousEventHandler() return 1 end
-function killAnonymousEventHandler() end
+W.handlers, W.nextHandler, W.downloads = {}, 0, {}
+function registerAnonymousEventHandler(ev, fn)
+  W.nextHandler = W.nextHandler + 1
+  W.handlers[W.nextHandler] = { ev = ev, fn = fn }
+  return W.nextHandler
+end
+function killAnonymousEventHandler(id) W.handlers[id] = nil end
+-- Raise a Mudlet event at every handler registered for it.
+local function fire(ev, ...)
+  local list = {}
+  for id, h in pairs(W.handlers) do if h.ev == ev then list[#list + 1] = h.fn end end
+  for _, fn in ipairs(list) do fn(ev, ...) end
+end
+function downloadFile(path, url) W.downloads[#W.downloads + 1] = { path = path, url = url } end
+lfs = { mkdir = function() end }
 W.timers = {}
 function tempTimer(_, fn) W.timers[#W.timers + 1] = fn; return #W.timers end
 function tempLineTrigger() return 1 end
@@ -47,10 +60,49 @@ function tempTrigger(pat, fn) return addTrig("sub", pat, fn) end
 function tempRegexTrigger(pat, fn) return addTrig("re", pat, fn) end
 function killTrigger(id) W.triggers[id] = nil end
 
--- Deliver a line the way Mudlet's trigger engine would (substring only).
+-- A stand-in for Mudlet's PCRE (rex.match), covering the regex the
+-- package generates and the built-ins use: ^ and $, \-escapes, \w,
+-- [..] classes, and the . + * ? quantifiers on one item. Anything else
+-- (groups, alternation) raises, so a test can't pass by accident on a
+-- pattern this doesn't support.
+local function pcreToLua(re)
+  local out, i = {}, 1
+  while i <= #re do
+    local c = re:sub(i, i)
+    if c == "\\" then
+      local n = re:sub(i + 1, i + 1)
+      out[#out + 1] = (n == "w") and "[%w_]" or (n:match("%p") and "%" .. n or n)
+      i = i + 2
+    elseif c == "[" then
+      local j = re:find("]", i + 1, true)
+      out[#out + 1] = re:sub(i, j)
+      i = j + 1
+    elseif c == "(" or c == "|" or c == "{" then
+      error("pcre stand-in can't handle: " .. re)
+    elseif c == "^" and i == 1 or c == "$" and i == #re or c:match("[%.%+%*%?]") then
+      out[#out + 1] = c
+      i = i + 1
+    else
+      out[#out + 1] = c:match("%p") and "%" .. c or c
+      i = i + 1
+    end
+  end
+  return table.concat(out)
+end
+rex = { match = function(subject, re) return subject:match(pcreToLua(re)) end }
+
+-- Deliver a line the way Mudlet's trigger engine would.
 local function deliver(s)
+  line = s   -- Mudlet's global for the current line
   for _, t in pairs(W.triggers) do
-    if t.kind == "sub" and s:find(t.pat, 1, true) then t.fn() end
+    local hit
+    if t.kind == "sub" then
+      hit = s:find(t.pat, 1, true)
+    else
+      local ok, m = pcall(rex.match, s, t.pat)
+      hit = ok and m
+    end
+    if hit then t.fn() end
   end
 end
 
@@ -109,13 +161,18 @@ local function boot()
   icesusfx = nil
   W.triggers = {}
   W.widgets = {}
-  for _, f in ipairs({ "data", "ui", "controller" }) do
+  for _, f in ipairs({ "builtins", "data", "ui", "controller" }) do
     dofile(REPO .. "/src/" .. f .. ".lua")
   end
   return icesusfx
 end
 
 local line = deliver
+
+-- An effect's number in `icefx list`, as a string for commands.
+local function idOf(fx, key)
+  for i, k in ipairs(fx.sortedKeys()) do if k == key then return tostring(i) end end
+end
 
 -- Message patterns across all definitions: one trigger each.
 local function patternCount(fx)
@@ -125,7 +182,7 @@ local function patternCount(fx)
   end
   return n
 end
-local ON  = "> You are suddenly enveloped into coldness of netherplane that feels like it would suck out your"
+local ON  = "You are suddenly enveloped into coldness of netherplane that feels like it would suck out your"
 local REF = "Essence of the nether around you rapidly replenishes its power."
 local OFF = "You feel essence of the nether leave your body."
 local KEY = "essence of the nether"
@@ -239,7 +296,9 @@ eq(#def.off, 0, "drop removes a pattern")
 fx.command("add Ess")              -- now "ess" is both a key and a prefix of essence
 eq(fx.resolve("ess"), "ess", "exact key wins over prefix")
 fx.command("remove ess")
-eq(fx.resolve("e"), KEY, "unique prefix resolves")
+eq(fx.resolve("ess"), KEY, "unique prefix resolves")
+local _, why = fx.resolve("e")
+eq(why, "ambiguous", "ambiguous prefix reported")
 fx.command("forget essence")
 eq(fx.estimate(KEY), nil, "forget wipes samples")
 fx.command("remove stone")
@@ -259,9 +318,8 @@ fx = boot()
 fx.command("add Fleshcraft")
 fx.command("add Stone skin")
 fx.command("set stone effect.timed=off")
--- sorted: 1 essence, 2 fleshcraft, ...
-eq(fx.resolve("2"), "fleshcraft", "list number resolves")
-fx.command("activate 1")
+eq(fx.resolve(idOf(fx, "fleshcraft")), "fleshcraft", "list number resolves")
+fx.command("activate " .. idOf(fx, KEY))
 e = fx.live[KEY]
 check(e and not e.ended and e.partial, "forced activation is partial")
 fx.addSample(KEY, 300)
@@ -290,7 +348,7 @@ W.echoes = {}
 fx.command("")
 check(table.concat(W.echoes):find("icefx activate", 1, true), "no args prints help")
 W.echoes = {}
-fx.command("activate 2"); fx.command("list")
+fx.command("activate " .. idOf(fx, "fleshcraft")); fx.command("list")
 local out = table.concat(W.echoes)
 check(out:find("Fleshcraft%s+<green>ON"), "list shows on")
 check(out:find("Essence of the nether%s+<grey>off"), "list shows off")
@@ -357,9 +415,68 @@ eq(#W.echoes, 0, "quiet when nothing changed")
 -- ----------------------------------------------------------------
 -- reload
 -- ----------------------------------------------------------------
-W.echoes = {}
+-- Nothing saved: download the latest release, install once it lands.
+W.echoes, W.downloads, W.timers, W.installed, W.uninstalled = {}, {}, {}, nil, nil
 fx.command("reload")
-check(table.concat(W.echoes):find("usage", 1, true), "reload without a path asks for one")
+local dl = W.downloads[1]
+eq(dl and dl.url, fx.RELEASE_URL, "reload with nothing saved fetches the latest release")
+check(dl.path:find("/IcesusEffects%.mpackage$"), "download keeps the package file name")
+eq(#W.timers, 0, "nothing uninstalled before the download finishes")
+fire("sysDownloadDone", "/some/other/file")
+eq(#W.timers, 0, "other downloads are ignored")
+fire("sysDownloadDone", dl.path)
+W.timers[#W.timers]()
+eq(W.uninstalled, "IcesusEffects", "uninstalled after download")
+eq(W.installed, dl.path, "installed from the downloaded file")
+eq(fx.data.packagePath, nil, "the default source is not saved")
+
+-- A failed download leaves the installed package alone.
+W.echoes, W.downloads, W.timers, W.installed, W.uninstalled = {}, {}, {}, nil, nil
+fx.command("reload latest")
+fire("sysDownloadError", "404 not found", W.downloads[1].path)
+eq(W.uninstalled, nil, "failed download: nothing uninstalled")
+check(table.concat(W.echoes):find("download failed", 1, true), "failed download reported")
+fire("sysDownloadDone", W.downloads[1].path)
+eq(#W.timers, 0, "handlers removed after an error")
+
+-- An explicit URL is saved for next time.
+W.downloads, W.timers = {}, {}
+fx.command("reload https://example.org/x.mpackage")
+eq(W.downloads[1].url, "https://example.org/x.mpackage", "explicit URL fetched")
+fire("sysDownloadDone", W.downloads[1].path)
+eq(fx.data.packagePath, "https://example.org/x.mpackage", "explicit URL remembered")
+W.downloads = {}
+fx.command("reload latest")
+eq(W.downloads[1].url, fx.RELEASE_URL, "reload latest ignores the saved source")
+eq(fx.data.packagePath, "https://example.org/x.mpackage", "reload latest keeps the saved source")
+fire("sysDownloadDone", W.downloads[1].path)
+
+-- update: compare with the latest release tag.
+local function latestIs(tag)
+  W.echoes, W.downloads, W.timers = {}, {}, {}
+  fx.command("update")
+  local api = W.downloads[1]
+  eq(api.url, fx.LATEST_API, "update asks the releases API")
+  local f = io.open(api.path, "w")
+  f:write('{"url":"x","tag_name": "' .. tag .. '","name":"y"}'); f:close()
+  fire("sysDownloadDone", api.path)
+end
+latestIs("v" .. fx.version)
+eq(#W.downloads, 1, "same version: nothing downloaded")
+check(table.concat(W.echoes):find("up to date", 1, true), "same version: up to date")
+latestIs("v0.0.1")
+eq(#W.downloads, 1, "older release: nothing downloaded")
+latestIs("v99.0.0")
+eq(W.downloads[2] and W.downloads[2].url, fx.RELEASE_URL, "newer release: downloads it")
+check(table.concat(W.echoes):find("v99.0.0 is out", 1, true), "newer release announced")
+fire("sysDownloadDone", W.downloads[2].path)
+
+check(fx.versionNewer("0.10.0", "0.9.9"), "versions compare numerically")
+check(not fx.versionNewer("0.3.0", "0.3.0"), "equal is not newer")
+check(fx.versionNewer("1.0", "0.9.9"), "shorter version compares")
+check(not fx.versionNewer("junk", "0.1.0"), "junk is never newer")
+
+-- A local file.
 local pkg = HOME .. "/IcesusEffects.mpackage"
 io.open(pkg, "w"):close()
 W.timers = {}
@@ -390,16 +507,16 @@ eq(#sets, 0, "parse: no settings means show")
 name, sets, err = fx.parseConfig('1 effect.on="unterminated')
 check(err and err:find("quote"), "parse: unterminated quote reported")
 
-fx.command('config 1 effect.on+="Second start." alert.flash=true alert.banner=yes alert.warn=10s')
+fx.command('config essence effect.on+="Second start." alert.flash=true alert.banner=yes alert.warn=10s')
 local d = fx.data.defs[KEY]
 eq(#d.on, 2, "+= appends")
 eq(d.on[2], "Second start.", "appended message")
 local al = fx.alerts(KEY)
 check(al.flash and al.banner and al.warn == 10, "alerts set")
 eq(#fx.triggerIds, patternCount(fx) + 2, "triggers rebuilt for new message")
-fx.command('config 1 effect.on.2="Changed start."')
+fx.command('config essence effect.on.2="Changed start."')
 eq(d.on[2], "Changed start.", ".N replaces")
-fx.command('config 1 effect.on="Only start."')
+fx.command('config essence effect.on="Only start."')
 eq(#d.on, 1, "= replaces the whole list"); eq(d.on[1], "Only start.", "replaced value")
 local ok, why = fx.setSetting(KEY, "alert.flash", "=", "maybe")
 check(not ok and why:find("true or false"), "bad bool rejected")
@@ -408,18 +525,18 @@ check(not ok, "+= rejected for scalar")
 ok, why = fx.setSetting(KEY, "effect.nope", "=", "x")
 check(not ok and why:find("unknown"), "unknown setting rejected")
 W.echoes = {}
-fx.command("show 1")
+fx.command("show essence")
 out = table.concat(W.echoes)
 check(out:find("alert.warn", 1, true) and out:find('"Only start."', 1, true), "show prints settings")
-fx.command("config 1 alert.warn=off")
+fx.command("config essence alert.warn=off")
 eq(fx.alerts(KEY).warn, nil, "warn off")
-fx.command('config 1 effect.on="You are suddenly enveloped into coldness of netherplane"')
+fx.command('config essence effect.on="You are suddenly enveloped into coldness of netherplane"')
 
 -- ----------------------------------------------------------------
 -- Alerts: flash and banner on expiry, warning before it.
 -- ----------------------------------------------------------------
 fx.addSample(KEY, 100)
-fx.command("config 1 alert.warn=10")
+fx.command("config essence alert.warn=10")
 line(ON)
 e = fx.live[KEY]
 W.clock = W.clock + 80
@@ -456,7 +573,7 @@ eq(fx.view(fx.live[KEY], W.clock).state, "expired", "flash stops")
 check(not W.widgets["icesusfx.banner"].visible, "banner hidden after its time")
 
 -- No alerts configured: nothing fires.
-fx.command("config 1 alert.flash=false alert.banner=false alert.warn=off")
+fx.command("config essence alert.flash=false alert.banner=false alert.warn=off")
 line(ON); W.clock = W.clock + 5; line(OFF)
 eq(fx.view(fx.live[KEY], W.clock).state, "expired", "no flash when off")
 eq(#fx.cues.banners, 0, "no banner when off")
@@ -543,6 +660,42 @@ fx.command("add Homemade")
 W.echoes = {}
 fx.command("migrate homemade")
 check(table.concat(W.echoes):find("not a built-in", 1, true), "user effects can't be migrated")
+
+
+-- ----------------------------------------------------------------
+-- Messages are bound to the start of the line.
+-- ----------------------------------------------------------------
+os.remove(HOME .. "/IcesusEffects.lua")
+fx = boot()
+eq(fx.messageRegex("A (b).c"), "^A \\(b\\)\\.c", "plain text escaped and anchored")
+eq(fx.messageRegex("re:^Foo"), "^Foo", "regex used as written")
+line("Bob says: " .. OFF)
+eq(fx.live[KEY], nil, "message inside a say does not fire")
+line("[party] Bob: " .. ON)
+eq(fx.live[KEY], nil, "message inside a channel line does not fire")
+line("> " .. ON)
+eq(fx.live[KEY], nil, "anything before the message: no match")
+line(ON)
+check(fx.isActive(KEY), "message at line start fires")
+line(OFF)
+check(fx.live[KEY].ended, "plain line fires")
+line("Kili creates a subdimensional rift around you, speeding up the universe inside it.")
+check(fx.isActive("haste"), "caster-name regex fires")
+line("Bob says: Kili creates a subdimensional rift around you, speeding up")
+eq(#fx.matchLine("Bob says: You feel fervent in your devotion."), 0, "icefx test agrees: not at line start")
+eq(fx.matchLine("You feel fervent in your devotion.")[1].key, "flagellation", "icefx test: at line start")
+
+
+-- Every shipped plain message matches a line that starts with it.
+for key, def in pairs(fx.BUILTIN) do
+  for _, kind in ipairs(fx.KINDS) do
+    for _, m in ipairs(def[kind] or {}) do
+      if m:sub(1, 3) ~= "re:" then
+        check(rex.match(m .. " and more", fx.messageRegex(m)), "builtin " .. key .. " " .. kind .. " matches itself")
+      end
+    end
+  end
+end
 
 eq(fx.fmtTime(3725), "1:02:05", "hours format")
 eq(fx.fmtTime(59.6), "1:00", "rounding")

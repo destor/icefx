@@ -3,7 +3,8 @@
 --
 -- data.lua: effect definitions, saved runs and estimates, and the
 -- live on/off state. No widgets and no triggers — ui.lua draws this
--- state and controller.lua changes it. Loaded first.
+-- state and controller.lua changes it. Loaded after builtins.lua,
+-- which holds the shipped effects (fx.BUILTIN).
 --
 -- Watches the main console for each effect's "on", "refresh" and
 -- "off" messages and shows one floating button per effect along the
@@ -20,7 +21,7 @@
 icesusfx = icesusfx or {}
 local fx = icesusfx
 
-fx.version = "0.3.0"
+fx.version = "0.4.0"
 fx.PACKAGE = "IcesusEffects"
 
 -- Layout (ui.lua) and learning (here) settings in one place.
@@ -38,43 +39,7 @@ fx.config = {
   fontSize    = 10,
 }
 
--- Effects known out of the box. Seeded into the player's own
--- definitions once per name, so `icefx remove` sticks and editing a
--- shipped definition is no different from editing your own.
---
--- Patterns are plain substrings of one line; prefix with "re:" for a
--- PCRE regex. Messages the server wraps over several lines must be
--- matched by a piece of a single line — the first is usually best.
-fx.BUILTIN = {
-  ["essence of the nether"] = {
-    label   = "Essence of the nether",
-    timed   = true,
-    on      = { "You are suddenly enveloped into coldness of netherplane" },
-    refresh = { "Essence of the nether around you rapidly replenishes its power." },
-    off     = { "You feel essence of the nether leave your body." },
-  },
-  ["fleshcraft"] = {
-    label   = "Fleshcraft",
-    timed   = false,
-    on      = { "Rapidly your fingers lengthen and become razor-sharp tools of destruction." },
-    refresh = {},
-    off     = { "By using fleshcraft you turn your lengthened, razor-sharp fingers rapidly back to normal shape." },
-  },
-  ["mantle of darkness"] = {
-    label   = "Mantle of darkness",
-    timed   = true,
-    on      = { "Shadows around you flicker and grow and start moving like a pitch black ooze spreading itself" },
-    refresh = {},
-    off     = { "Shadows enveloping you disperse." },
-  },
-  ["presence of the dark master"] = {
-    label   = "Presence of the dark master",
-    timed   = true,
-    on      = { "Air around you ripples for a second with dark energies as you connect to the netherplane and a" },
-    refresh = {},
-    off     = { "Your overpowering presence fades away." },
-  },
-}
+-- fx.BUILTIN, the shipped effect definitions, lives in builtins.lua.
 
 fx.KINDS = { "on", "refresh", "off" }
 
@@ -273,20 +238,28 @@ function fx.clearExpired()
   end
 end
 
+-- The PCRE a message is matched with. Game messages always start
+-- their line, so a plain message is bound to the line start: the same
+-- words inside a say or a channel line don't fire it.
+--   plain text   the line starts with it
+--   re:<regex>   the regex as written; start it with ^ to keep it
+--                bound to the line start
+function fx.messageRegex(pat)
+  if pat:sub(1, 3) == "re:" then return pat:sub(4) end
+  return "^" .. (pat:gsub("[%^%$%.%|%?%*%+%(%)%[%]%{%}\\]", "\\%0"))
+end
+
 -- Feed one line through every pattern, as the triggers would. Used by
--- `icefx test` and the unit tests; live matching is Mudlet's trigger engine.
+-- `icefx test` and the unit tests; live matching is Mudlet's trigger
+-- engine, with the same regexes.
 function fx.matchLine(line)
   local hits = {}
+  if not (rex and rex.match) then return hits end
   for key, def in pairs(fx.data.defs) do
     for _, kind in ipairs(fx.KINDS) do
       for _, pat in ipairs(def[kind] or {}) do
-        local hit
-        if pat:sub(1, 3) == "re:" then
-          hit = rex and rex.match and rex.match(line, pat:sub(4)) ~= nil
-        else
-          hit = line:find(pat, 1, true) ~= nil
-        end
-        if hit then hits[#hits + 1] = { key = key, kind = kind } end
+        local ok, m = pcall(rex.match, line, fx.messageRegex(pat))
+        if ok and m ~= nil then hits[#hits + 1] = { key = key, kind = kind } end
       end
     end
   end
@@ -551,4 +524,23 @@ function fx.checkShipped()
     end
   end
   return changed
+end
+
+-- =============================================================
+-- Versions — "0.10.0" > "0.9.1", which a string compare gets wrong.
+-- =============================================================
+local function versionParts(s)
+  local out = {}
+  for n in tostring(s or ""):gmatch("%d+") do out[#out + 1] = tonumber(n) end
+  return out
+end
+
+function fx.versionNewer(a, b)
+  local pa, pb = versionParts(a), versionParts(b)
+  if #pa == 0 or #pb == 0 then return false end
+  for i = 1, math.max(#pa, #pb) do
+    local x, y = pa[i] or 0, pb[i] or 0
+    if x ~= y then return x > y end
+  end
+  return false
 end

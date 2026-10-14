@@ -21,22 +21,34 @@ luajit tests/test_effects.lua   # unit tests; exits non-zero on failure
 ./build/build.sh                # builds dist/IcesusEffects.mpackage
 ```
 
-Run both after every change. In Mudlet, run `icefx reload` to
-reinstall the package from the built file.
+Run both after every change. To try a build in Mudlet, run
+`icefx reload <path to dist/IcesusEffects.mpackage>` once. The path is
+saved, so after that plain `icefx reload` is enough. Without a saved
+source, `icefx reload` installs the latest GitHub release instead.
+
+Reload and update fetch URLs with `downloadFile` and only uninstall
+once the download has succeeded. Keep it that way: an uninstall
+followed by a failed download leaves the player with no package.
 
 ## Layout
 
 | path | role |
 | ---- | ---- |
-| `src/data.lua` | model: definitions, built-ins (`fx.BUILTIN`), persistence, estimates, live state, settings (`fx.setSetting`), migration |
+| `src/builtins.lua` | data only: the shipped effects, `fx.BUILTIN`, with the format documented at the top |
+| `src/data.lua` | model: definitions, seeding built-ins, persistence, estimates, live state, settings (`fx.setSetting`), migration |
 | `src/ui.lua` | view: `fx.view` (what a button shows, as plain data), Geyser widgets (`fx.render`), banner, `effects` table rows |
 | `src/controller.lua` | wiring: triggers, `effects` listing parser, alerts, `icefx` command, install and teardown |
 | `build/build.sh` | wraps `src/*.lua` and the `icefx` alias into `IcesusEffects.xml`, then zips it with `package/config.lua` |
-| `tests/test_effects.lua` | loads the three source files under a mocked Mudlet API |
+| `tests/test_effects.lua` | loads the four source files under a mocked Mudlet API |
 
-Mudlet runs the three files in the order listed in `SOURCES` in
-`build/build.sh`: data, then ui, then controller. They share the global
-`icesusfx` table, and each file starts with `local fx = icesusfx`.
+Mudlet runs the four files in the order listed in `SOURCES` in
+`build/build.sh`: builtins, data, ui, then controller. They share the
+global `icesusfx` table, and each file starts with
+`local fx = icesusfx`.
+
+To ship a new effect, add an entry to `src/builtins.lua` and nothing
+else. Players get new entries on their next load. Changes to an existing
+entry reach players only through `icefx migrate`.
 
 ## Rules
 
@@ -67,17 +79,21 @@ Mudlet runs the three files in the order listed in `SOURCES` in
   Temp triggers go into `fx.triggerIds`.
 - **No `]]>` in source files.** The build places them in XML CDATA
   blocks and refuses to build if one is found.
-- **Messages are plain substrings of one line by default**, matched by
-  `tempTrigger`. A `re:` prefix makes the message a PCRE regex, matched
-  by `tempRegexTrigger`. The game wraps long messages, so match part of
-  the first line.
+- **Messages are bound to the start of a line.** Game messages always
+  start their line. `fx.messageRegex` turns a plain message into
+  `^` + the escaped text, and every message runs as a
+  `tempRegexTrigger`. A `re:` message is used exactly as written, so
+  shipped regexes start with `^`. The game wraps long messages, so use
+  the beginning of the first line.
 
 ## Tests
 
 - **Mock new Mudlet calls.** The test file mocks every Mudlet function
   the package uses: Geyser widgets record their position, size, style,
-  text and visibility, and triggers are matched by substring with
-  `deliver(line)`. A new Mudlet API call needs a mock in the test file,
+  text and visibility. `deliver(line)` runs a line through the
+  triggers, using a small stand-in for PCRE (`rex.match`). The stand-in
+  raises an error on regex features it doesn't support, rather than
+  silently not matching. A new Mudlet API call needs a mock in the test file,
   or the suite crashes.
 - **Time.** The clock is `W.clock`; advance it by hand.
 - **Built-ins change.** The player edits `fx.BUILTIN` directly, so
@@ -85,7 +101,7 @@ Mudlet runs the three files in the order listed in `SOURCES` in
   count. Use `patternCount(fx)`, or delete the data file and `boot()`
   again.
 - **Persistence.** To test saving and loading, call `boot()` again,
-  which re-runs all three files against the same profile directory.
+  which re-runs all four files against the same profile directory.
 
 ## Releasing
 
