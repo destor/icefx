@@ -57,9 +57,10 @@ your effects, recorded runs, settings and active effects.
 
 ## How it works
 
-Each effect has three kinds of message. A message is the start of one
-line of game output. It only matches when the line begins with it, so
-the same words inside a say or a channel line don't set it off:
+Each effect has three kinds of message. A message is the beginning of a
+sentence of game output. It matches at the start of a line, or right
+after `. `, `! ` or `? `. So the same words inside a say or a channel
+line (`Bob says: You feel safer.`) don't set it off:
 
 | kind      | what it does |
 | --------- | ------------ |
@@ -85,17 +86,20 @@ its estimate, the time turns amber and the bar is empty.
 struck through, until you click it or type `icefx clear`. When you start
 it again, the same button becomes active again.
 
-**Multi-line messages.** The game wraps long messages over several
-lines, and a message can only match one line. Use the beginning of the
-first line. For example, the start message of Essence of the nether is
-matched by `You are suddenly enveloped into coldness of netherplane`.
+**Long lines.** The game often puts several sentences on one line, for
+example a spell's flavour text followed by the effect message. Mudlet
+wraps that line to fit the window, but triggers see the whole line as
+the game sent it. So the message doesn't have to be at the start of
+what you see, and the beginning of the sentence is enough:
+`You are suddenly enveloped into coldness of netherplane` matches the
+whole Essence of the nether message.
 
-**Lines that start with a name.** Some messages begin with whoever cast
-the spell, for example `Kili creates a subdimensional rift around you…`.
-Plain text can't match those, so use a regex:
-`re:^[A-Z][a-z]+ creates a subdimensional rift around you`. A regex is
-used exactly as written. Start it with `^` to keep it bound to the
-start of the line.
+**Sentences that start with a name.** Some messages begin with whoever
+cast the spell, for example `Kili creates a subdimensional rift around
+you…`. Plain text can't match those, so use a regex:
+`re:^[A-Z][a-z]+ creates a subdimensional rift around you`. In a regex,
+a leading `^` means "at the start of a sentence", as with plain
+messages. Without `^`, the regex matches anywhere in the line.
 
 ## Adding effects
 

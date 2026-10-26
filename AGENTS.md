@@ -79,12 +79,17 @@ entry reach players only through `icefx migrate`.
   Temp triggers go into `fx.triggerIds`.
 - **No `]]>` in source files.** The build places them in XML CDATA
   blocks and refuses to build if one is found.
-- **Messages are bound to the start of a line.** Game messages always
-  start their line. `fx.messageRegex` turns a plain message into
-  `^` + the escaped text, and every message runs as a
-  `tempRegexTrigger`. A `re:` message is used exactly as written, so
-  shipped regexes start with `^`. The game wraps long messages, so use
-  the beginning of the first line.
+- **Messages are bound to the start of a sentence.**
+  - Mudlet runs triggers on the whole line the game sent, before
+    wrapping it for display, and the game often puts a spell's flavour
+    text and its effect message on one line. So a message can't be
+    required at the start of the line.
+  - `fx.messageRegex` prefixes every message with `fx.SENTENCE_START`
+    (line start, or after `. `, `! ` or `? `). That keeps say, tell and
+    channel lines from firing it.
+  - A leading `^` in a `re:` message is replaced by the same prefix.
+    Shipped regexes start with `^`.
+  - Every message runs as a `tempRegexTrigger`.
 
 ## Tests
 

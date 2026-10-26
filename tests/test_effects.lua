@@ -62,8 +62,9 @@ function killTrigger(id) W.triggers[id] = nil end
 
 -- A stand-in for Mudlet's PCRE (rex.match), covering the regex the
 -- package generates and the built-ins use: ^ and $, \-escapes, \w,
--- [..] classes, and the . + * ? quantifiers on one item. Anything else
--- (groups, alternation) raises, so a test can't pass by accident on a
+-- [..] classes, the . + * ? quantifiers on one item, and a leading
+-- sentence-start group (fx.SENTENCE_START). Anything else (other
+-- groups, alternation) raises, so a test can't pass by accident on a
 -- pattern this doesn't support.
 local function pcreToLua(re)
   local out, i = {}, 1
@@ -89,7 +90,21 @@ local function pcreToLua(re)
   end
   return table.concat(out)
 end
-rex = { match = function(subject, re) return subject:match(pcreToLua(re)) end }
+local SENTENCE = [[(?:^|[.!?]\s+)]]
+rex = { match = function(subject, re)
+  if re:sub(1, #SENTENCE) ~= SENTENCE then return subject:match(pcreToLua(re)) end
+  -- Try the line start, then right after each ". " / "! " / "? ".
+  local rest = "^" .. pcreToLua(re:sub(#SENTENCE + 1))
+  local m = subject:match(rest)
+  local from = 1
+  while not m do
+    local _, e = subject:find("[%.!%?]%s+", from)
+    if not e then return nil end
+    m = subject:sub(e + 1):match(rest)
+    from = e + 1
+  end
+  return m
+end }
 
 -- Deliver a line the way Mudlet's trigger engine would.
 local function deliver(s)
@@ -667,14 +682,24 @@ check(table.concat(W.echoes):find("not a built-in", 1, true), "user effects can'
 -- ----------------------------------------------------------------
 os.remove(HOME .. "/IcesusEffects.lua")
 fx = boot()
-eq(fx.messageRegex("A (b).c"), "^A \\(b\\)\\.c", "plain text escaped and anchored")
-eq(fx.messageRegex("re:^Foo"), "^Foo", "regex used as written")
+eq(fx.messageRegex("A (b).c"), fx.SENTENCE_START .. "A \\(b\\)\\.c", "plain text escaped, at a sentence start")
+eq(fx.messageRegex("re:^Foo"), fx.SENTENCE_START .. "Foo", "leading ^ in a regex means a sentence start")
+eq(fx.messageRegex("re:Foo"), "Foo", "regex without ^ used as written")
 line("Bob says: " .. OFF)
 eq(fx.live[KEY], nil, "message inside a say does not fire")
 line("[party] Bob: " .. ON)
 eq(fx.live[KEY], nil, "message inside a channel line does not fire")
 line("> " .. ON)
-eq(fx.live[KEY], nil, "anything before the message: no match")
+eq(fx.live[KEY], nil, "a prompt before the message: no match")
+-- The game sends flavour text and the effect message as one line;
+-- Mudlet only wraps it for display.
+line("You close your eyes and spread your fingers wide. You picture savage claws of a massive "
+  .. "carnivore in your mind and manipulate your very flesh and bone and bend it with your will "
+  .. "and dark knowledge. Rapidly your fingers lengthen and become razor-sharp tools of destruction.")
+check(fx.isActive("fleshcraft"), "message after another sentence on the same line fires")
+line("Bob says: Rapidly your fingers lengthen and become razor-sharp tools of destruction.")
+line("By using fleshcraft you turn your lengthened, razor-sharp fingers rapidly back to normal shape.")
+check(not fx.isActive("fleshcraft"), "fleshcraft off")
 line(ON)
 check(fx.isActive(KEY), "message at line start fires")
 line(OFF)
@@ -692,6 +717,7 @@ for key, def in pairs(fx.BUILTIN) do
     for _, m in ipairs(def[kind] or {}) do
       if m:sub(1, 3) ~= "re:" then
         check(rex.match(m .. " and more", fx.messageRegex(m)), "builtin " .. key .. " " .. kind .. " matches itself")
+        check(rex.match("Flavour text first. " .. m, fx.messageRegex(m)), "builtin " .. key .. " " .. kind .. " matches mid-line")
       end
     end
   end

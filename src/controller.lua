@@ -439,7 +439,7 @@ local HELP = {
   "alert.warn=10|off                  pulse the button 10 s before the estimated end",
   "",
   "<grey><effect> is its number in icefx list, its name, or the start of it.",
-  "A message is the start of one line of output; start it with re: for a regex.<reset>",
+  "A message is the start of a sentence of output; start it with re: for a regex.<reset>",
 }
 
 local function cmdHelp()

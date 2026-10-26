@@ -238,15 +238,25 @@ function fx.clearExpired()
   end
 end
 
--- The PCRE a message is matched with. Game messages always start
--- their line, so a plain message is bound to the line start: the same
--- words inside a say or a channel line don't fire it.
---   plain text   the line starts with it
---   re:<regex>   the regex as written; start it with ^ to keep it
---                bound to the line start
+-- Where a message may begin: the start of a sentence. Mudlet runs
+-- triggers on the whole line the game sent, before wrapping it for
+-- display, and the game puts several sentences on one line — a spell's
+-- flavour text followed by its effect message, say. Requiring a
+-- sentence start still keeps "Bob says: You feel ..." and channel
+-- lines from firing a message.
+fx.SENTENCE_START = [[(?:^|[.!?]\s+)]]
+
+-- The PCRE a message is matched with.
+--   plain text   a sentence starts with it
+--   re:<regex>   the regex as written, except that a leading ^ means
+--                "at a sentence start" too
 function fx.messageRegex(pat)
-  if pat:sub(1, 3) == "re:" then return pat:sub(4) end
-  return "^" .. (pat:gsub("[%^%$%.%|%?%*%+%(%)%[%]%{%}\\]", "\\%0"))
+  if pat:sub(1, 3) == "re:" then
+    local re = pat:sub(4)
+    if re:sub(1, 1) == "^" then return fx.SENTENCE_START .. re:sub(2) end
+    return re
+  end
+  return fx.SENTENCE_START .. (pat:gsub("[%^%$%.%|%?%*%+%(%)%[%]%{%}\\]", "\\%0"))
 end
 
 -- Feed one line through every pattern, as the triggers would. Used by

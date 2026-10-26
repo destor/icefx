@@ -13,14 +13,16 @@
 --            key is the same name in lower case
 --   timed    true when the effect has a duration to learn
 --   on, refresh, off
---            messages. Each is the START of one line of game output:
---            plain text matches when the line begins with it, so the
---            same words in a say or a channel line don't fire it.
---            "re:" makes it a PCRE regex; start it with ^ to keep it
---            bound to the line start. A line that begins with someone's name needs a
---            regex: "re:^[A-Z][a-z]+ creates a ...". The game wraps
---            lines at about 95 characters, so a long message is cut to
---            its first ~60 characters, at a word boundary.
+--            messages. Each is the START of a sentence of game output:
+--            plain text matches at the start of a line or right after
+--            ". ", "! " or "? " (fx.SENTENCE_START), so the same words
+--            in a say or a channel line don't fire it. Mudlet matches
+--            the whole line the game sent, before wrapping it for
+--            display, and a spell's flavour text often comes first on
+--            the same line. "re:" makes it a PCRE regex, where a leading
+--            ^ means a sentence start too. A sentence that begins with
+--            someone's name needs a regex: "re:^[A-Z][a-z]+ creates a
+--            ...". The beginning of a long message is enough.
 --
 -- Messages in the IceTF section are from IceTF, Kili's TinyFugue
 -- scripts for Icesus (https://github.com/icekili/IceTF,
@@ -65,7 +67,7 @@ fx.BUILTIN = {
   ["life boost"] = {
     label   = "Life boost",
     timed   = true,
-    on      = { "re:^You feel (much )?safer\\.$" },
+    on      = { "re:^You feel (much )?safer\\." },
     refresh = {},
     off     = { "The life boost fades, making you feel threatened." },
   },
@@ -142,22 +144,6 @@ fx.BUILTIN = {
     off     = { "Your eyes tickle for a second and you notice that your abnormal" },
   },
 
-  -- Chronomancers (cast on you by someone else)
-  ["haste"] = {
-    label   = "Haste",
-    timed   = true,
-    on      = { "re:^[A-Z][a-z]+ creates a subdimensional rift around you, speeding up" },
-    refresh = {},
-    off     = { "You feel slower as the strange subdimensional rift disappears." },
-  },
-  ["slow"] = {
-    label   = "Slow",
-    timed   = true,
-    on      = { "re:^[A-Z][a-z]+ creates a subdimensional rift around you, slowing" },
-    refresh = {},
-    off     = { "You feel faster as the strange subdimensional rift disappears." },
-  },
-
   -- Templars
   ["elemental shield of water"] = {
     label   = "Elemental shield of water",
@@ -181,28 +167,5 @@ fx.BUILTIN = {
     on      = { "Your faith is your armor and no mortal danger can steer you" },
     refresh = { "You feel your faith strenghten." },
     off     = { "You feel the effects of your martyrdom wane." },
-  },
-
-  -- Guild unknown (cast on you by someone else)
-  ["inertia bubble"] = {
-    label   = "Inertia bubble",
-    timed   = true,
-    on      = { "The air around you waves and ripples, blurring everything" },
-    refresh = {},
-    off     = { "The inertia bubble around you dissolves." },
-  },
-  ["shadow barrier"] = {
-    label   = "Shadow barrier",
-    timed   = true,
-    on      = { "re:^As [A-Z][a-z]+ finishes the chant, shadows jump from the darkness" },
-    refresh = {},
-    off     = { "The shadow barrier around you fades into nothingness." },
-  },
-  ["unfold mind"] = {
-    label   = "Unfold mind",
-    timed   = true,
-    on      = { "re:^You feel [A-Z][a-z]+'s presence inside your mind, while" },
-    refresh = {},
-    off     = { "Your mind feels limited again." },
   },
 }
