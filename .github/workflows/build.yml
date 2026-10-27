@@ -19,17 +19,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check versions agree
+      # The version is fx.version in src/data.lua; the build writes it
+      # into config.lua. A release tag must match it.
+      - name: Check the tag matches the version
         run: |
-          pkg=$(sed -n 's/^version = "\(.*\)"$/\1/p' package/config.lua)
-          lua=$(sed -n 's/^fx.version = "\(.*\)"$/\1/p' src/data.lua)
-          echo "package/config.lua: $pkg, src/data.lua: $lua"
-          if [ -z "$pkg" ] || [ "$pkg" != "$lua" ]; then
-            echo "::error::version in package/config.lua ($pkg) and fx.version in src/data.lua ($lua) differ"
+          ver=$(sed -n 's/^fx.version = "\(.*\)"$/\1/p' src/data.lua)
+          echo "fx.version: $ver"
+          if [ -z "$ver" ]; then
+            echo "::error::no fx.version in src/data.lua"
             exit 1
           fi
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "${GITHUB_REF_NAME#v}" != "$pkg" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match package version $pkg"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "${GITHUB_REF_NAME#v}" != "$ver" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match fx.version $ver"
             exit 1
           fi
 

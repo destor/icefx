@@ -112,14 +112,15 @@ entry reach players only through `icefx migrate`.
 ## Releasing
 
 `.github/workflows/build.yml` runs on every push to `main` and on every
-pull request. It checks that the two version numbers agree, runs the
-tests, builds the package, and uploads it as a workflow artifact.
+pull request. It runs the tests, builds the package, and uploads it as
+a workflow artifact.
 `dist/` is gitignored, so built packages are never committed.
 
 To publish a release:
 
-1. Bump the version in both `package/config.lua` (`version`) and
-   `src/data.lua` (`fx.version`). CI fails if the two differ.
+1. Bump `fx.version` in `src/data.lua`. That is the only copy: the
+   build writes it into the package's `config.lua` in place of
+   `@VERSION@`, so don't put a version in `package/config.lua`.
 2. Commit, then tag the commit with `v` plus the version and push the
    tag, e.g. `git tag v0.4.0 && git push origin v0.4.0`. CI fails if the
    tag doesn't match the version.

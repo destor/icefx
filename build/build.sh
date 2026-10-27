@@ -5,6 +5,8 @@
 # unit-tested directly; this wraps them, plus the `icefx` alias, into
 # the package XML Mudlet expects, and zips that with config.lua.
 # Mudlet runs the scripts top to bottom, so SOURCES order is load order.
+# The version lives only in src/data.lua (fx.version); config.lua gets
+# it in place of @VERSION@.
 #
 # Usage: ./build/build.sh
 set -euo pipefail
@@ -17,9 +19,18 @@ mkdir -p "$OUT_DIR"
 rm -f "$OUT"
 
 python3 - "$OUT" <<'PY'
-import sys, zipfile
+import re, sys, zipfile
 out = sys.argv[1]
 SOURCES = ["builtins", "data", "ui", "controller"]
+
+m = re.search(r'^fx\.version = "([^"]+)"$', open("src/data.lua", encoding="utf-8").read(), re.M)
+if not m:
+    sys.exit('src/data.lua has no fx.version = "..." line')
+version = m.group(1)
+config = open("package/config.lua", encoding="utf-8").read()
+if "@VERSION@" not in config:
+    sys.exit("package/config.lua has no @VERSION@ placeholder")
+config = config.replace("@VERSION@", version)
 
 scripts = []
 for name in SOURCES:
@@ -80,7 +91,8 @@ ET.fromstring(xml.split("\n", 2)[2])  # fail the build on malformed XML
 
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("IcesusEffects.xml", xml)
-    z.write("package/config.lua", "config.lua")
+    z.writestr("config.lua", config)
+print(f"version {version}")
 PY
 
 echo "Built $OUT"
