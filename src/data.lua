@@ -21,7 +21,7 @@
 icesusfx = icesusfx or {}
 local fx = icesusfx
 
-fx.version = "0.4.0"
+fx.version = "0.5.0"
 fx.PACKAGE = "IcesusEffects"
 
 -- Layout (ui.lua) and learning (here) settings in one place.
