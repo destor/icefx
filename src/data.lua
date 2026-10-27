@@ -67,12 +67,41 @@ function fx.load()
     -- Signature of each shipped definition as of the last load, so an
     -- update that changes one can be noticed (see fx.checkShipped).
     shipped = type(t.shipped) == "table" and t.shipped or {},
-    -- Where `icefx reload` reinstalls the package from.
+    -- Where `icefx update` reinstalls the package from.
     packagePath = type(t.packagePath) == "string" and t.packagePath or nil,
+    -- Effects that have fired, been listed by `effects` or were added
+    -- by hand; `icefx list` shows these by default.
+    seen    = type(t.seen) == "table" and t.seen or {},
+    -- Tags switched off with `icefx disable <tag>`: their effects get no
+    -- triggers and are left out of `icefx list`.
+    tagsOff = type(t.tagsOff) == "table" and t.tagsOff or {},
   }
+  local filled = fx.fillTags()
+  for key, st in pairs(fx.data.stats) do
+    if type(st) == "table" and type(st.samples) == "table" and #st.samples > 0
+        and fx.data.defs[key] and not fx.data.seen[key] then
+      fx.data.seen[key] = true
+      filled = true
+    end
+  end
   local seeded = fx.seedBuiltins()
   local changed = fx.checkShipped()
-  if seeded or changed then fx.save() end
+  if filled or seeded or changed then fx.save() end
+end
+
+-- Definitions saved before tags existed get the shipped tags, or none.
+-- Only a missing field is filled; a player's own list is never touched.
+-- Returns true if any was.
+function fx.fillTags()
+  local changed = false
+  for key, def in pairs(fx.data.defs) do
+    if type(def) == "table" and type(def.tags) ~= "table" then
+      local ship = fx.BUILTIN[key]
+      def.tags = { unpack(ship and ship.tags or {}) }
+      changed = true
+    end
+  end
+  return changed
 end
 
 -- Add each shipped effect not seeded before. Returns true if any was.
@@ -87,6 +116,7 @@ function fx.seedBuiltins()
           on = { unpack(def.on or {}) },
           refresh = { unpack(def.refresh or {}) },
           off = { unpack(def.off or {}) },
+          tags = { unpack(def.tags or {}) },
         }
       end
       changed = true
@@ -103,7 +133,7 @@ function fx.resetToBaseline()
   local backup = getMudletHomeDir() .. "/IcesusEffects.backup.lua"
   pcall(table.save, backup, fx.data)
   fx.data = { defs = {}, stats = {}, seeded = {}, shipped = {},
-    packagePath = fx.data.packagePath }
+    seen = {}, tagsOff = {}, packagePath = fx.data.packagePath }
   fx.seedBuiltins()
   fx.checkShipped()
   fx.live = {}
@@ -153,9 +183,17 @@ local function emit(name, key)
   if raiseEvent then pcall(raiseEvent, name, key) end
 end
 
+local function markSeen(key)
+  if not fx.data.seen[key] then
+    fx.data.seen[key] = true
+    fx.save()
+  end
+end
+
 function fx.fire(key, kind)
   local def = fx.data.defs[key]
   if not def then return end
+  markSeen(key)
   local t = fx.now()
   local e = fx.live[key]
   local active = e and not e.ended
@@ -196,6 +234,7 @@ end
 function fx.activate(key)
   local e = fx.live[key]
   if e and not e.ended then return false end
+  markSeen(key)
   local t = fx.now()
   fx.live[key] = { key = key, since = t, started = t, refreshes = 0, partial = true }
   emit("icesusfx.on", key)
@@ -261,7 +300,8 @@ end
 
 -- Feed one line through every pattern, as the triggers would. Used by
 -- `icefx test` and the unit tests; live matching is Mudlet's trigger
--- engine, with the same regexes.
+-- engine, with the same regexes. Disabled effects match too, marked
+-- off, since they have no triggers.
 function fx.matchLine(line)
   local hits = {}
   if not (rex and rex.match) then return hits end
@@ -269,7 +309,9 @@ function fx.matchLine(line)
     for _, kind in ipairs(fx.KINDS) do
       for _, pat in ipairs(def[kind] or {}) do
         local ok, m = pcall(rex.match, line, fx.messageRegex(pat))
-        if ok and m ~= nil then hits[#hits + 1] = { key = key, kind = kind } end
+        if ok and m ~= nil then
+          hits[#hits + 1] = { key = key, kind = kind, off = not fx.isEnabled(key) }
+        end
       end
     end
   end
@@ -317,14 +359,107 @@ end
 function fx.define(label)
   local key = label:lower()
   if fx.data.defs[key] then return nil end
-  fx.data.defs[key] = { label = label, timed = true, on = {}, refresh = {}, off = {} }
+  fx.data.defs[key] = { label = label, timed = true, on = {}, refresh = {}, off = {}, tags = {} }
+  fx.data.seen[key] = true
   return key
 end
 
 function fx.undefine(key)
   fx.data.defs[key] = nil
   fx.data.stats[key] = nil
+  fx.data.seen[key] = nil
   fx.live[key] = nil
+end
+
+-- =============================================================
+-- Tags — 0..n per effect, for filtering `icefx list` and switching
+-- groups of effects off. An effect is enabled unless effect.enabled
+-- is false or one of its tags is switched off; a disabled effect gets
+-- no triggers. "all", "seen", "unseen" and "off" name `icefx list`
+-- views, so they can't be tags.
+-- =============================================================
+fx.RESERVED_TAGS = { all = true, seen = true, unseen = true, off = true }
+
+function fx.tagsOf(key)
+  local def = fx.data.defs[key]
+  return (def and def.tags) or {}
+end
+
+function fx.hasTag(key, tag)
+  for _, t in ipairs(fx.tagsOf(key)) do if t == tag then return true end end
+  return false
+end
+
+function fx.isEnabled(key)
+  local def = fx.data.defs[key]
+  if not def or def.enabled == false then return false end
+  for _, t in ipairs(fx.tagsOf(key)) do
+    if fx.data.tagsOff[t] then return false end
+  end
+  return true
+end
+
+-- A tag as typed: lower case, letters, digits, - and _. Returns it, or
+-- nil and why.
+function fx.normalizeTag(s)
+  local tag = trim(s or ""):lower()
+  if tag == "" then return nil, "empty tag" end
+  if not tag:match("^[%w_%-]+$") then return nil, "a tag is letters, digits, - and _: " .. tag end
+  if fx.RESERVED_TAGS[tag] then return nil, tag .. " is reserved" end
+  return tag
+end
+
+-- Every tag in use, sorted: { tag, count, on }.
+function fx.allTags()
+  local counts = {}
+  for key in pairs(fx.data.defs) do
+    for _, t in ipairs(fx.tagsOf(key)) do counts[t] = (counts[t] or 0) + 1 end
+  end
+  local out = {}
+  for t, n in pairs(counts) do out[#out + 1] = { tag = t, count = n, on = not fx.data.tagsOff[t] } end
+  table.sort(out, function(a, b) return a.tag < b.tag end)
+  return out
+end
+
+-- Live entries of effects that are now disabled go, buttons and all.
+local function dropDisabled()
+  for key, e in pairs(fx.live) do
+    if not fx.isEnabled(key) then
+      if not e.ended then emit("icesusfx.off", key) end
+      fx.live[key] = nil
+    end
+  end
+end
+
+-- Switch a tag on or off. Returns the keys of the effects it has, or
+-- nil when no effect has it.
+function fx.setTagEnabled(tag, on)
+  local keys = {}
+  for _, key in ipairs(fx.sortedKeys()) do
+    if fx.hasTag(key, tag) then keys[#keys + 1] = key end
+  end
+  if #keys == 0 then return nil end
+  if on then fx.data.tagsOff[tag] = nil else fx.data.tagsOff[tag] = true end
+  dropDisabled()
+  return keys
+end
+
+-- Enable or disable one effect (effect.enabled). It can still be
+-- disabled by a tag afterwards; the caller checks fx.isEnabled.
+function fx.setEnabled(key, on)
+  local def = fx.data.defs[key]
+  if not def then return false end
+  if on then def.enabled = nil else def.enabled = false end
+  dropDisabled()
+  return true
+end
+
+-- Which `icefx list` view shows an effect: nil (the default view,
+-- seen and enabled), "unseen" or "off".
+function fx.listGroup(key)
+  if not fx.isEnabled(key) then return "off" end
+  if not fx.data.seen[key] then return "unseen" end
+  return nil
 end
 
 function fx.forget(key)
@@ -344,10 +479,13 @@ end
 --
 --   effect.label            display name
 --   effect.timed            has a duration (true/false)
+--   effect.enabled          false = no triggers, left out of `icefx list`
 --   effect.on / .refresh / .off
 --                           message lists: = replaces the list with one
 --                           message (empty clears it), += appends,
 --                           .N = replaces message N (empty removes it)
+--   effect.tags             tag list, the same way; = and += take
+--                           several tags separated by spaces or commas
 --   alert.flash             pulse the button red when it falls off
 --   alert.banner            banner across the console when it falls
 --                           off (and at the warning, if alert.warn)
@@ -392,8 +530,38 @@ function fx.setSetting(key, path, op, value)
     return true
   end
 
+  if group == "effect" and name == "tags" then
+    local tags = {}
+    for word in value:gmatch("[^%s,]+") do
+      local tag, why = fx.normalizeTag(word)
+      if not tag then return nil, why end
+      tags[#tags + 1] = tag
+    end
+    def.tags = def.tags or {}
+    local list = def.tags
+    if idx then
+      if op ~= "=" then return nil, "use = with a numbered tag" end
+      if not list[idx] then return nil, "no tag " .. path end
+      if #tags > 1 then return nil, "one tag at a time for " .. path end
+      if #tags == 0 then table.remove(list, idx) else list[idx] = tags[1] end
+    elseif op == "+=" then
+      if #tags == 0 then return nil, "nothing to add to " .. path end
+      for _, t in ipairs(tags) do
+        if not fx.hasTag(key, t) then list[#list + 1] = t end
+      end
+    else
+      local out, dup = {}, {}
+      for _, t in ipairs(tags) do
+        if not dup[t] then dup[t] = true; out[#out + 1] = t end
+      end
+      def.tags = out
+    end
+    dropDisabled()
+    return true
+  end
+
   if idx or op ~= "=" then
-    return nil, "only effect.on, effect.refresh and effect.off take += or a number"
+    return nil, "only effect.on, effect.refresh, effect.off and effect.tags take += or a number"
   end
 
   if group == "effect" and name == "label" then
@@ -402,11 +570,17 @@ function fx.setSetting(key, path, op, value)
     return true
   end
 
-  if (group == "effect" and name == "timed")
+  if (group == "effect" and (name == "timed" or name == "enabled"))
       or (group == "alert" and (name == "flash" or name == "banner")) then
     local b = BOOL[value:lower()]
     if b == nil then return nil, path .. " takes true or false" end
-    if group == "effect" then def.timed = b else alertOf(def)[name] = b end
+    if name == "timed" then
+      def.timed = b
+    elseif name == "enabled" then
+      fx.setEnabled(key, b)
+    else
+      alertOf(def)[name] = b
+    end
     return true
   end
 
@@ -434,6 +608,8 @@ function fx.settingLines(key)
   local out = {
     { "effect.label", q(fx.label(key)) },
     { "effect.timed", tostring(def.timed ~= false) },
+    { "effect.enabled", tostring(def.enabled ~= false) },
+    { "effect.tags", q(table.concat(fx.tagsOf(key), " ")) },
   }
   for _, kind in ipairs(fx.KINDS) do
     local list = def[kind] or {}
@@ -454,16 +630,25 @@ end
 -- A built-in is copied into the player's definitions once and edited
 -- there from then on, so a package update never overwrites it. These
 -- compare the copy with the shipped version, and copy the shipped
--- label, timed flag and messages over it on request. Runs and alerts
--- are the player's and are never touched.
+-- label, timed flag, messages and tags over it on request. Runs,
+-- alerts and effect.enabled are the player's and are never touched.
 -- =============================================================
 local function timedOf(def) return def.timed ~= false end
 
-local function signature(def)
+local function sortedTags(def)
+  local t = { unpack(def.tags or {}) }
+  table.sort(t)
+  return t
+end
+
+-- noTags: the signature as packages before tags stored it, so the
+-- first load with tags isn't taken for a package change.
+local function signature(def, noTags)
   local parts = { def.label or "", tostring(timedOf(def)) }
   for _, kind in ipairs(fx.KINDS) do
     parts[#parts + 1] = table.concat(def[kind] or {}, "\0")
   end
+  if not noTags then parts[#parts + 1] = table.concat(sortedTags(def), "\0") end
   return table.concat(parts, "\1")
 end
 
@@ -494,6 +679,17 @@ function fx.builtinDiff(key)
       out[#out + 1] = { field = "effect." .. kind, removed = removed, added = added }
     end
   end
+  -- Tags are a set: their order is not a change.
+  local a, b = sortedTags(mine), sortedTags(ship)
+  if table.concat(a, "\0") ~= table.concat(b, "\0") then
+    local inA, inB = {}, {}
+    for _, t in ipairs(a) do inA[t] = true end
+    for _, t in ipairs(b) do inB[t] = true end
+    local removed, added = {}, {}
+    for _, t in ipairs(a) do if not inB[t] then removed[#removed + 1] = t end end
+    for _, t in ipairs(b) do if not inA[t] then added[#added + 1] = t end end
+    out[#out + 1] = { field = "effect.tags", removed = removed, added = added }
+  end
   return out
 end
 
@@ -513,6 +709,8 @@ function fx.migrate(key)
   if not ship or not mine then return false end
   mine.label, mine.timed = ship.label, ship.timed
   for _, kind in ipairs(fx.KINDS) do mine[kind] = { unpack(ship[kind] or {}) } end
+  mine.tags = { unpack(ship.tags or {}) }
+  dropDisabled()
   return true
 end
 
@@ -526,8 +724,12 @@ function fx.checkShipped()
     local ship = fx.BUILTIN[key]
     if ship then
       local sig = signature(ship)
-      if fx.data.shipped[key] ~= sig then
-        if fx.builtinDiff(key) then fx.updated[#fx.updated + 1] = key end
+      local stored = fx.data.shipped[key]
+      if stored ~= sig then
+        -- Stored before tags existed, and nothing else changed: the
+        -- tags were just filled in (fx.fillTags), so stay quiet.
+        local quiet = stored == signature(ship, true)
+        if not quiet and fx.builtinDiff(key) then fx.updated[#fx.updated + 1] = key end
         fx.data.shipped[key] = sig
         changed = true
       end

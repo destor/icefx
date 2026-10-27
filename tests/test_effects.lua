@@ -26,6 +26,7 @@ function getBorderRight() return W.borders.right end
 function getBorderBottom() return W.borders.bottom end
 function getBorderLeft() return W.borders.left end
 function cecho(s) W.echoes[#W.echoes + 1] = s end
+function decho(s) W.echoes[#W.echoes + 1] = s end
 function raiseEvent(name, ...) W.events[#W.events + 1] = { name, ... } end
 W.handlers, W.nextHandler, W.downloads = {}, 0, {}
 function registerAnonymousEventHandler(ev, fn)
@@ -361,7 +362,65 @@ check(next(fx.live) == nil, "reset clears everything")
 
 W.echoes = {}
 fx.command("")
-check(table.concat(W.echoes):find("icefx activate", 1, true), "no args prints help")
+out = table.concat(W.echoes)
+check(out:find("icefx on|off <effect>", 1, true), "no args prints help")
+check(not out:find("icefx migrate", 1, true), "plain help leaves out the rarer commands")
+check(not out:find("activate", 1, true), "plain help leaves out old names")
+W.echoes = {}
+fx.command("help all")
+check(table.concat(W.echoes):find("icefx migrate", 1, true), "help all lists every command")
+for _, c in ipairs(fx.COMMANDS) do
+  for _, n in ipairs(c.names) do
+    W.echoes = {}
+    fx.command(n .. " help")
+    check(table.concat(W.echoes):find("icefx " .. c.usage, 1, true), n .. " help shows its usage")
+  end
+end
+W.echoes = {}
+fx.command("help on")
+check(table.concat(W.echoes):find("also: activate, deactivate", 1, true), "help names the old spellings")
+W.echoes = {}
+fx.command("config help")
+out = table.concat(W.echoes)
+check(out:find("alert.warn=10|off", 1, true) and not out:find("effect.enabled", 1, true),
+  "config help lists the settings, without effect.enabled")
+W.echoes = {}
+fx.command("config")
+check(table.concat(W.echoes):find("alert.warn=10|off", 1, true), "config with nothing after it shows its help")
+for _, c in ipairs(fx.COMMANDS) do
+  if c.needsArg then
+    for _, n in ipairs(c.names) do
+      W.echoes = {}
+      fx.command(n)
+      check(table.concat(W.echoes):find("icefx " .. c.usage, 1, true), n .. " with nothing after it shows its help")
+    end
+  end
+end
+W.echoes = {}
+fx.command("activate")
+check(table.concat(W.echoes):find("icefx on|off", 1, true), "an old name with nothing after it shows the help too")
+W.echoes = {}
+fx.command("help nosuch")
+check(table.concat(W.echoes):find("no such command", 1, true), "unknown help topic")
+W.echoes = {}
+fx.command("frobnicate")
+check(table.concat(W.echoes):find("unknown command", 1, true), "unknown command")
+W.echoes = {}
+fx.command("on stone")
+check(fx.isActive("stone skin"), "on forces an effect on")
+fx.command("off stone")
+check(fx.live["stone skin"].ended, "off forces it off")
+W.echoes = {}
+fx.command("config stone alert.warn")
+out = table.concat(W.echoes)
+check(out:find("alert.warn", 1, true) and out:find("pulse the button", 1, true), "config <effect> <setting> shows one setting")
+check(not out:find("alert.flash", 1, true), "only that setting")
+W.echoes = {}
+fx.command("config flesh effect.on")
+check(table.concat(W.echoes):find("effect.on.1", 1, true), "a list setting shows every entry")
+W.echoes = {}
+fx.command("config stone alert.nope")
+check(table.concat(W.echoes):find("unknown setting", 1, true), "unknown setting reported")
 W.echoes = {}
 fx.command("activate " .. idOf(fx, "fleshcraft")); fx.command("list")
 local out = table.concat(W.echoes)
@@ -428,13 +487,13 @@ fx.finishEffects()
 eq(#W.echoes, 0, "quiet when nothing changed")
 
 -- ----------------------------------------------------------------
--- reload
+-- update (and its old name, reload)
 -- ----------------------------------------------------------------
--- Nothing saved: download the latest release, install once it lands.
+-- latest: download the latest release, install once it lands.
 W.echoes, W.downloads, W.timers, W.installed, W.uninstalled = {}, {}, {}, nil, nil
-fx.command("reload")
+fx.command("update latest")
 local dl = W.downloads[1]
-eq(dl and dl.url, fx.RELEASE_URL, "reload with nothing saved fetches the latest release")
+eq(dl and dl.url, fx.RELEASE_URL, "update latest fetches the latest release")
 check(dl.path:find("/IcesusEffects%.mpackage$"), "download keeps the package file name")
 eq(#W.timers, 0, "nothing uninstalled before the download finishes")
 fire("sysDownloadDone", "/some/other/file")
@@ -454,17 +513,22 @@ check(table.concat(W.echoes):find("download failed", 1, true), "failed download 
 fire("sysDownloadDone", W.downloads[1].path)
 eq(#W.timers, 0, "handlers removed after an error")
 
--- An explicit URL is saved for next time.
+-- An explicit URL is saved for next time, and plain update uses it.
 W.downloads, W.timers = {}, {}
-fx.command("reload https://example.org/x.mpackage")
+fx.command("update https://example.org/x.mpackage")
 eq(W.downloads[1].url, "https://example.org/x.mpackage", "explicit URL fetched")
 fire("sysDownloadDone", W.downloads[1].path)
 eq(fx.data.packagePath, "https://example.org/x.mpackage", "explicit URL remembered")
 W.downloads = {}
-fx.command("reload latest")
-eq(W.downloads[1].url, fx.RELEASE_URL, "reload latest ignores the saved source")
-eq(fx.data.packagePath, "https://example.org/x.mpackage", "reload latest keeps the saved source")
+fx.command("update")
+eq(W.downloads[1].url, "https://example.org/x.mpackage", "plain update reinstalls the saved source")
 fire("sysDownloadDone", W.downloads[1].path)
+W.downloads = {}
+fx.command("update latest")
+eq(W.downloads[1].url, fx.RELEASE_URL, "update latest ignores the saved source")
+eq(fx.data.packagePath, "https://example.org/x.mpackage", "update latest keeps the saved source")
+fire("sysDownloadDone", W.downloads[1].path)
+fx.data.packagePath = nil
 
 -- update: compare with the latest release tag.
 local function latestIs(tag)
@@ -495,12 +559,16 @@ check(not fx.versionNewer("junk", "0.1.0"), "junk is never newer")
 local pkg = HOME .. "/IcesusEffects.mpackage"
 io.open(pkg, "w"):close()
 W.timers = {}
-fx.command("reload " .. pkg)
+fx.command("update " .. pkg)
 W.timers[#W.timers]()
-eq(W.uninstalled, "IcesusEffects", "reload uninstalls")
-eq(W.installed, pkg, "reload installs from path")
+eq(W.uninstalled, "IcesusEffects", "update uninstalls")
+eq(W.installed, pkg, "update installs from path")
 fx = boot()
-eq(fx.data.packagePath, pkg, "reload path remembered")
+eq(fx.data.packagePath, pkg, "update path remembered")
+W.timers, W.installed = {}, nil
+fx.command("reload")
+W.timers[#W.timers]()
+eq(W.installed, pkg, "reload (old name) reinstalls the saved file")
 
 
 -- ----------------------------------------------------------------
@@ -711,6 +779,188 @@ check(fx.isActive("haste"), "caster-name regex fires")
 line("Bob says: Kili creates a subdimensional rift around you, speeding up")
 eq(#fx.matchLine("Bob says: You feel fervent in your devotion."), 0, "icefx test agrees: not at line start")
 eq(fx.matchLine("You feel fervent in your devotion.")[1].key, "flagellation", "icefx test: at line start")
+
+
+-- ----------------------------------------------------------------
+-- Tags, seen, and disabling.
+-- ----------------------------------------------------------------
+local function enabledPatternCount(fx)
+  local n = 0
+  for key, def in pairs(fx.data.defs) do
+    if fx.isEnabled(key) then
+      for _, kind in ipairs(fx.KINDS) do n = n + #(def[kind] or {}) end
+    end
+  end
+  return n
+end
+
+os.remove(HOME .. "/IcesusEffects.lua")
+fx = boot()
+for key, ship in pairs(fx.BUILTIN) do
+  local tags = fx.data.defs[key].tags
+  eq(table.concat(tags, " "), table.concat(ship.tags or {}, " "), "builtin " .. key .. " seeded with its tags")
+  check(tags ~= ship.tags, "seeded tags are a copy")
+  check(not fx.data.seen[key], "builtin " .. key .. " not seen on a fresh install")
+end
+
+fx.command("add Iron hide")
+fx.command('config iron effect.on="Your hide turns to iron." effect.off="Your hide softens." effect.tags="Warrior, buffs"')
+eq(table.concat(fx.tagsOf("iron hide"), " "), "warrior buffs", "tags lower-cased, split on spaces and commas")
+check(fx.data.seen["iron hide"], "an effect added by hand counts as seen")
+fx.command('config iron effect.tags+="buffs mine"')
+eq(table.concat(fx.tagsOf("iron hide"), " "), "warrior buffs mine", "+= adds only new tags")
+fx.command("config iron effect.tags.2=")
+eq(table.concat(fx.tagsOf("iron hide"), " "), "warrior mine", ".N= removes a tag")
+local ok2, why2 = fx.setSetting("iron hide", "effect.tags", "+=", "all")
+check(not ok2 and why2:find("reserved", 1, true), "reserved tag refused")
+ok2, why2 = fx.setSetting("iron hide", "effect.tags", "+=", "a.b")
+check(not ok2, "tag with punctuation refused")
+fx.command("add Stone hide")
+fx.command('config stone effect.on="Your hide turns to stone." effect.tags="warrior"')
+
+-- Default list: seen and enabled only; numbers are full-list positions.
+W.echoes = {}
+fx.command("list")
+out = table.concat(W.echoes)
+check(out:find("Iron hide", 1, true), "list shows a seen effect")
+check(not out:find("Fleshcraft", 1, true), "list hides unseen effects")
+check(out:find("not seen yet (icefx list unseen)", 1, true), "list says how many are hidden")
+check(out:find("<cyan>" .. string.format("%2d", tonumber(idOf(fx, "iron hide"))) .. "<reset>  Iron hide", 1, true),
+  "list number is the position in the full list")
+check(out:find("[warrior mine]", 1, true), "list shows tags")
+W.echoes = {}
+fx.command("list unseen")
+check(table.concat(W.echoes):find("Fleshcraft", 1, true), "list unseen shows unseen effects")
+W.echoes = {}
+fx.command("list all")
+out = table.concat(W.echoes)
+check(out:find("Fleshcraft", 1, true) and out:find("Iron hide", 1, true), "list all shows everything")
+W.echoes = {}
+fx.command("list mine")
+out = table.concat(W.echoes)
+check(out:find("Iron hide", 1, true) and not out:find("Stone hide", 1, true), "list <tag> filters by tag")
+W.echoes = {}
+fx.command("list nosuchtag")
+check(table.concat(W.echoes):find("no effect has the tag", 1, true), "unknown tag reported")
+
+-- A fired built-in becomes seen.
+line("Rapidly your fingers lengthen and become razor-sharp tools of destruction.")
+check(fx.data.seen["fleshcraft"], "firing marks an effect seen")
+
+-- icefx tags.
+W.echoes = {}
+fx.command("tags")
+out = table.concat(W.echoes)
+check(out:find("warrior%s+<green>on <reset>%s+<grey>2 effects"), "tags lists counts and state")
+
+-- Switching a tag off: no triggers, no button, hidden from the list.
+line("Your hide turns to iron.")
+check(fx.isActive("iron hide"), "iron hide on")
+local before = #fx.triggerIds
+fx.command("disable warrior")
+check(not fx.isEnabled("iron hide") and not fx.isEnabled("stone hide"), "tag off disables its effects")
+eq(fx.live["iron hide"], nil, "a disabled effect's button goes")
+eq(#fx.triggerIds, enabledPatternCount(fx) + 2, "disabled effects get no triggers")
+check(#fx.triggerIds < before, "fewer triggers than before")
+line("Your hide turns to iron.")
+eq(fx.live["iron hide"], nil, "a disabled effect does not fire")
+eq(fx.matchLine("Your hide turns to iron.")[1].off, true, "icefx test marks a disabled effect")
+W.echoes = {}
+fx.command("list")
+out = table.concat(W.echoes)
+check(not out:find("Iron hide", 1, true) and out:find("disabled (icefx list off)", 1, true), "list hides disabled")
+W.echoes = {}
+fx.command("list off")
+check(table.concat(W.echoes):find("Iron hide", 1, true), "list off shows disabled")
+
+-- The `effects` listing does not turn on a disabled effect.
+fx.effectsLine("Beneficial effects affecting you:")
+fx.effectsLine(" Iron hide")
+fx.effectsLine("> ")
+eq(fx.live["iron hide"], nil, "sync leaves a disabled effect off")
+
+-- Off survives a reload; seen too.
+fx = boot()
+check(not fx.isEnabled("iron hide"), "tag off persists")
+check(fx.data.seen["fleshcraft"], "seen persists")
+fx.command("enable warrior")
+check(fx.isEnabled("iron hide"), "tag on enables again")
+eq(#fx.triggerIds, patternCount(fx) + 2, "every trigger back")
+W.echoes = {}
+fx.command("disable nosuch")
+check(table.concat(W.echoes):find("no such effect or tag", 1, true), "unknown name can't be switched")
+
+-- One tag off disables an effect even when another of its tags is on.
+fx.command("tags off mine")
+check(not fx.isEnabled("iron hide") and fx.isEnabled("stone hide"), "any tag off disables (old spelling)")
+fx.command("tags on mine")
+check(fx.isEnabled("iron hide"), "tags on (old spelling)")
+
+-- One effect.
+fx.command("disable stone")
+check(not fx.isEnabled("stone hide") and fx.isEnabled("iron hide"), "disable <effect> disables one effect")
+eq(fx.data.defs["stone hide"].enabled, false, "stored as effect.enabled")
+fx.command("enable stone")
+check(fx.isEnabled("stone hide"), "enable <effect> enables it")
+eq(fx.data.defs["stone hide"].enabled, nil, "enabled is only stored when false")
+fx.command("config stone effect.enabled=false")
+check(not fx.isEnabled("stone hide"), "effect.enabled=false still works")
+fx.command("config stone effect.enabled=true")
+-- An effect's full name wins over a tag; a tag beats a name prefix.
+fx.command("add Warrior")
+fx.command("disable warrior")
+check(not fx.isEnabled("warrior") and fx.isEnabled("iron hide"), "full effect name wins over the tag")
+fx.command("enable warrior")
+fx.command("remove warrior")
+fx.command("add Warriors rage")
+fx.command("disable warrior")
+check(not fx.isEnabled("iron hide") and fx.isEnabled("warriors rage"), "a tag beats the start of a name")
+W.echoes = {}
+fx.command("enable iron")
+check(table.concat(W.echoes):find("still disabled by its tag warrior", 1, true), "enable says which tag still disables it")
+fx.command("enable warrior")
+fx.command("remove warriors rage")
+
+-- Tags in migrate: a removed shipped tag is a difference; migrate
+-- restores the tags but keeps effect.enabled.
+local tkey, tship
+for key, ship in pairs(fx.BUILTIN) do
+  if ship.tags and #ship.tags > 0 then tkey, tship = key, ship; break end
+end
+if tkey then
+  fx.command("config " .. idOf(fx, tkey) .. ' effect.tags="custom" effect.enabled=false')
+  local d = fx.builtinDiff(tkey)
+  eq(d and d[#d].field, "effect.tags", "tag change shows in migrate")
+  eq(d[#d].added[1], tship.tags[1], "shipped tag would be added back")
+  fx.command("migrate " .. idOf(fx, tkey))
+  eq(fx.builtinDiff(tkey), nil, "migrate restores tags")
+  check(not fx.isEnabled(tkey), "migrate keeps effect.enabled")
+  fx.command("config " .. idOf(fx, tkey) .. " effect.enabled=true")
+end
+
+-- A profile saved before tags: tags filled from the package, seen
+-- filled from recorded runs, and no "package changed" announcement.
+local function legacySignature(def)
+  local parts = { def.label or "", tostring(def.timed ~= false) }
+  for _, kind in ipairs(fx.KINDS) do parts[#parts + 1] = table.concat(def[kind] or {}, "\0") end
+  return table.concat(parts, "\1")
+end
+os.remove(HOME .. "/IcesusEffects.lua")
+fx = boot()
+for key, def in pairs(fx.data.defs) do
+  def.tags = nil
+  fx.data.shipped[key] = legacySignature(fx.BUILTIN[key])
+end
+fx.data.seen, fx.data.tagsOff = nil, nil
+fx.data.stats[KEY] = { samples = { 300 } }
+fx.save()
+fx = boot()
+eq(#fx.updated, 0, "filling tags is not announced as a package change")
+eq(#fx.migratable(), 0, "old profile matches the package after the fill")
+for key, ship in pairs(fx.BUILTIN) do
+  eq(table.concat(fx.data.defs[key].tags, " "), table.concat(ship.tags or {}, " "), "old profile gets " .. key .. " tags")
+end
+check(fx.data.seen[KEY], "an effect with recorded runs counts as seen")
 
 
 -- Every shipped plain message matches a line that starts with it.

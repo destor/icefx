@@ -40,16 +40,16 @@ To install your own build, run `./build/build.sh` and install
 
 `icefx update` checks GitHub for the latest release. If that release is
 newer than the version you have, it downloads and installs it.
-Otherwise it tells you that you're up to date.
-
-`icefx reload` reinstalls the package. You can tell it where to
-install from:
+Otherwise it tells you that you're up to date. You can also tell it
+where to install from:
 
 | command | installs from |
 | ------- | ------------- |
-| `icefx reload` | the file or URL saved last time, or the latest release if nothing is saved |
-| `icefx reload latest` | the latest release; the saved file or URL stays saved |
-| `icefx reload <file or URL>` | that `.mpackage` file or `https://` URL, which is then saved for next time |
+| `icefx update` | the file or URL saved last time; with nothing saved, the latest release if it is newer |
+| `icefx update latest` | the latest release, even if it isn't newer; the saved file or URL stays saved |
+| `icefx update <file or URL>` | that `.mpackage` file or `https://` URL, which is then saved for next time |
+
+`icefx reload` is the old name and does the same as `icefx update`.
 
 The package downloads a URL before it uninstalls anything. If the
 download fails, the version you have keeps running. Reloading keeps
@@ -103,29 +103,18 @@ messages. Without `^`, the regex matches anywhere in the line.
 
 ## Adding effects
 
-The package includes these effects:
+The package includes these effects, tagged by the guild they come from:
 
-- Aspect of elements
-- Elemental shield of water
-- Embrace of the rimewind
-- Essence of the nether
-- Flagellation
-- Fleshcraft
-- Gift of elements
-- Haste
-- Inertia bubble
-- Life boost
-- Mantle of darkness
-- Martyrdom
-- Presence of the dark master
-- Senses of a beast
-- Shadow barrier
-- Slow
-- Spectral claws
-- Sphere of protection
-- Sphere of warding
-- Thirst for knowledge
-- Unfold mind
+| tags | effects |
+| ---- | ------- |
+| `scion` | Essence of the nether, Fleshcraft, Mantle of darkness, Presence of the dark master |
+| `priest-of-air` | Life boost |
+| `priest-of-water` | Embrace of the rimewind, Thirst for knowledge |
+| `priest-of-fire` | Flagellation, Martyrdom |
+| `teaching-of-elements` | Aspect of elements, Gift of elements |
+| `sorcerer` | Sphere of protection, Sphere of warding |
+| `gaesati` | Senses of a beast, Spectral claws |
+| `templar` | Elemental shield of water |
 
 Many of their messages come from
 [IceTF](https://github.com/icekili/IceTF), Kili's TinyFugue scripts for
@@ -154,18 +143,64 @@ game, paste the line into `icefx test`:
 icefx test You feel essence of the nether leave your body.
 ```
 
+## Tags and the list
+
+`icefx list` shows only the effects you have seen: ones that have
+started or ended, appeared in the game's `effects` output, or that you
+added yourself. The rest are counted on the last line:
+
+```
+  +11 not seen yet (icefx list unseen)
+```
+
+`icefx list all` shows every effect, `icefx list unseen` the ones you
+haven't seen and `icefx list off` the disabled ones. An effect keeps
+the same number in every view, so `icefx config 7` always means the
+same effect.
+
+An effect has any number of tags, shown in brackets after it in the
+list. `icefx list <tag>` shows the effects with that tag, and
+`icefx tags` lists every tag with how many effects have it. Tags are
+edited like messages:
+
+```
+icefx config 7 effect.tags+="mine"           add a tag
+icefx config 7 effect.tags="sorcerer mine"   replace them
+icefx config 7 effect.tags.2=                remove tag 2
+```
+
+A tag is lower case and contains letters, digits, `-` and `_`. `all`,
+`seen`, `unseen` and `off` name list views, so they can't be tags.
+
+To stop tracking a whole group, disable its tag. The effects get no
+triggers, their buttons go away and the list leaves them out.
+`icefx enable` brings them back:
+
+```
+icefx disable gaesati
+icefx enable gaesati
+icefx disable 7              one effect
+```
+
+An effect is disabled when it, or any one of its tags, is disabled. A
+number or an effect's full name means that effect; otherwise a tag's
+full name means the tag, and after that the start of an effect's name
+means the effect.
+
 ## Settings
 
 `icefx config <effect> <setting>=<value>` changes a setting, and you can
 change several at once. `icefx set` does the same thing.
-`icefx show <effect>`, or `icefx config <effect>` with nothing after it,
-lists every setting in a form you can copy back into `icefx config`.
+`icefx show <effect>` lists every setting in a form you can copy back
+into `icefx config`, and `icefx config <effect> <setting>` shows one
+setting and what it does. `icefx config help` lists the settings.
 
 | setting | value |
 | ------- | ----- |
 | `effect.label` | display name |
 | `effect.timed` | `true` if the effect has a duration |
 | `effect.on`, `effect.refresh`, `effect.off` | messages, see below |
+| `effect.tags` | tags, a list like the messages (see [Tags and the list](#tags-and-the-list)) |
 | `alert.flash` | `true`: the button flashes red for 5 s when the effect falls off |
 | `alert.banner` | `true`: a banner appears in the middle of the console when it falls off, and when it reaches the warning time |
 | `alert.warn` | seconds, or `off`: the button pulses amber from this long before the estimated end until you refresh the effect or it falls off |
@@ -194,30 +229,43 @@ icefx config essence alert.warn=15 alert.banner=on
 
 ## All commands
 
-`icefx` on its own prints this list.
+`icefx` on its own lists the everyday commands:
 
 ```
-icefx list                         effects, estimates, on/off
-icefx show <effect>                all its settings and recorded runs
-icefx add <name>                   define a new effect
-icefx remove <effect>              delete it
-icefx config <effect> <setting>=<value> ...
-                                   change settings
-icefx activate|deactivate <effect> force it on or off
-icefx reset                        everything off, all buttons gone
-icefx reset-to-baseline            back to a fresh install (see below)
-icefx sync                         run `effects` and match it
-icefx clear                        dismiss expired buttons
-icefx forget <effect>              wipe its recorded runs
-icefx migrate [<effect>|all]       compare built-ins with the package / take its version
-icefx test <line>                  which messages a line matches
-icefx update                       install the latest release if it is newer
-icefx reload [latest|<file>|<url>] reinstall (see Updating)
+icefx list [all|unseen|off|<tag>]        your effects
+icefx show <effect>                      its settings and recorded runs
+icefx add <name>                         track a new effect
+icefx config <effect> <setting>=<value>  change settings (icefx config help)
+icefx on|off <effect>                    fix its state when a message was missed
+icefx clear                              dismiss expired buttons
+icefx enable|disable <effect|tag>        start / stop tracking it
+icefx tags                               tags and how many effects have each
+icefx update [latest|<file>|<url>]       install the latest release
 ```
+
+`icefx help all` adds the rest:
+
+```
+icefx remove <effect>                    delete it
+icefx forget <effect>                    wipe its recorded runs
+icefx reset                              everything off, all buttons gone
+icefx reset-to-baseline                  back to a fresh install (see below)
+icefx sync                               run `effects` and match it
+icefx migrate [<effect>|all]             compare built-ins with the package / take its version
+icefx test <line>                        which messages a line matches
+icefx help [all|<command>]               this list, every command, or one in detail
+```
+
+`icefx <command> help`, or `icefx help <command>`, explains one command.
+A command that needs an argument, such as `icefx config`, does the same
+when you type it without one.
+Older names still work: `activate` and `deactivate` for `on` and `off`,
+`reload` for `update`, `tags on|off` for `enable|disable`, and `set`
+for `config`.
 
 ## Fixing the state by hand
 
-If a message is missed, use `icefx activate` or `icefx deactivate` to
+If a message is missed, use `icefx on` or `icefx off` to
 correct an effect, or `icefx reset` to turn everything off. In these
 cases the package doesn't know when the effect really started. The
 button then shows the elapsed time as a minimum (`≥1:05 / ~5:00`), and
@@ -251,8 +299,9 @@ package, with the differences:
 `-` marks a message only your copy has, and `+` marks a message only
 the package has. To take the package's version, use `icefx migrate 1`
 (or the effect's name) for one effect, or `icefx migrate all` for all
-of them. Migration replaces the label, the timed setting and the
-messages. Recorded runs and alert settings are kept.
+of them. Migration replaces the label, the timed setting, the messages
+and the tags. Recorded runs, alert settings and whether you disabled
+the effect are kept.
 
 The list also includes effects you changed on purpose, so you can
 ignore those. The load message only appears when the package's version
@@ -274,7 +323,7 @@ accident.
 
 Before the reset, the old data is saved to `IcesusEffects.backup.lua`
 in your profile directory. To undo the reset, copy that file over
-`IcesusEffects.lua` and run `icefx reload`. The saved `icefx reload`
+`IcesusEffects.lua` and run `icefx update`. The saved `icefx update`
 source is kept.
 
 ## Syncing with `effects`
@@ -338,8 +387,8 @@ luajit tests/test_effects.lua   # unit tests, mocked Mudlet API (Mudlet runs Lua
 ./build/build.sh                # dist/IcesusEffects.mpackage
 ```
 
-After a rebuild, run `icefx reload <path to dist/IcesusEffects.mpackage>`
-in Mudlet. The path is saved, so after that `icefx reload` is
+After a rebuild, run `icefx update <path to dist/IcesusEffects.mpackage>`
+in Mudlet. The path is saved, so after that `icefx update` is
 enough. Your effect definitions, saved runs and active effects are kept.
 
 The source is in `src/`, as four files that load in this order:

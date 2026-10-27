@@ -12,6 +12,10 @@
 --   label    the name as the game's `effects` command lists it; the
 --            key is the same name in lower case
 --   timed    true when the effect has a duration to learn
+--   tags     list of tags: lower case, letters, digits, - and _. By
+--            convention the guild or race the effect comes from, so
+--            players can filter (`icefx list <tag>`) and disable
+--            (`icefx disable <tag>`) a whole group
 --   on, refresh, off
 --            messages. Each is the START of a sentence of game output:
 --            plain text matches at the start of a line or right after
@@ -36,6 +40,7 @@ fx.BUILTIN = {
 
   ["essence of the nether"] = {
     label   = "Essence of the nether",
+    tags    = { "scion" },
     timed   = true,
     on      = { "You are suddenly enveloped into coldness of netherplane" },
     refresh = { "Essence of the nether around you rapidly replenishes its power." },
@@ -43,6 +48,7 @@ fx.BUILTIN = {
   },
   ["fleshcraft"] = {
     label   = "Fleshcraft",
+    tags    = { "scion" },
     timed   = false,
     on      = { "Rapidly your fingers lengthen and become razor-sharp tools of destruction." },
     refresh = {},
@@ -50,6 +56,7 @@ fx.BUILTIN = {
   },
   ["mantle of darkness"] = {
     label   = "Mantle of darkness",
+    tags    = { "scion" },
     timed   = true,
     on      = { "Shadows around you flicker and grow and start moving like a pitch black ooze spreading itself" },
     refresh = { "Shadows around you take tighter grasp of you." },
@@ -57,6 +64,7 @@ fx.BUILTIN = {
   },
   ["presence of the dark master"] = {
     label   = "Presence of the dark master",
+    tags    = { "scion" },
     timed   = true,
     on      = { "Air around you ripples for a second with dark energies as you connect to the netherplane and a" },
     refresh = {},
@@ -66,6 +74,7 @@ fx.BUILTIN = {
   -- Priest of air
   ["life boost"] = {
     label   = "Life boost",
+    tags    = { "priest-of-air" },
     timed   = true,
     on      = { "re:^You feel (much )?safer\\." },
     refresh = {},
@@ -75,6 +84,7 @@ fx.BUILTIN = {
   -- Teaching of elements
   ["aspect of elements"] = {
     label   = "Aspect of elements",
+    tags    = { "teaching-of-elements" },
     timed   = true,
     on      = { "You open your mouth and utter 'Adefyv Peiadc'" },
     refresh = { "You replenish elemental aspect." },
@@ -82,6 +92,7 @@ fx.BUILTIN = {
   },
   ["gift of elements"] = {
     label   = "Gift of elements",
+    tags    = { "teaching-of-elements" },
     timed   = true,
     on      = {
       "The essence of Pthuule fills your spirit and you feel gifted",
@@ -94,6 +105,7 @@ fx.BUILTIN = {
   -- Sorcerer
   ["sphere of protection"] = {
     label   = "Sphere of protection",
+    tags    = { "sorcerer" },
     timed   = true,
     on      = { "A smoky, red-hued sphere of protection surrounds you." },
     refresh = {},
@@ -101,6 +113,7 @@ fx.BUILTIN = {
   },
   ["sphere of warding"] = {
     label   = "Sphere of warding",
+    tags    = { "sorcerer" },
     timed   = true,
     on      = { "A crystal-clear sphere of warding surrounds you." },
     refresh = { "re:^Your sphere of warding glimmers a second as [A-Z][a-z]+ replenishes it\\." },
@@ -110,6 +123,7 @@ fx.BUILTIN = {
   -- Priest of water
   ["thirst for knowledge"] = {
     label   = "Thirst for knowledge",
+    tags    = { "priest-of-water" },
     timed   = true,
     on      = { "You feel sudden thirst for new knowledge and feel a bit wiser." },
     refresh = {},
@@ -117,6 +131,7 @@ fx.BUILTIN = {
   },
   ["embrace of the rimewind"] = {
     label   = "Embrace of the rimewind",
+    tags    = { "priest-of-water" },
     timed   = true,
     on      = { "Massive glacial gales heed your call and start to blow" },
     refresh = {},
@@ -126,6 +141,7 @@ fx.BUILTIN = {
   -- Gaesati shapeshifters
   ["spectral claws"] = {
     label   = "Spectral claws",
+    tags    = { "gaesati" },
     timed   = true,
     on      = {
       "Suddenly the air around your claws turns extremely chilly!",
@@ -138,6 +154,7 @@ fx.BUILTIN = {
   },
   ["senses of a beast"] = {
     label   = "Senses of a beast",
+    tags    = { "gaesati" },
     timed   = true,
     on      = { "Suddenly your vision flashes for a second but then returns" },
     refresh = {},
@@ -147,6 +164,7 @@ fx.BUILTIN = {
   -- Templars
   ["elemental shield of water"] = {
     label   = "Elemental shield of water",
+    tags    = { "templar" },
     timed   = true,
     on      = { "Your skin gets a blue hue as a layer of elemental energy" },
     refresh = {},
@@ -156,6 +174,7 @@ fx.BUILTIN = {
   -- Priest of fire
   ["flagellation"] = {
     label   = "Flagellation",
+    tags    = { "priest-of-fire" },
     timed   = true,
     on      = { "You feel fervent in your devotion." },
     refresh = {},
@@ -163,6 +182,7 @@ fx.BUILTIN = {
   },
   ["martyrdom"] = {
     label   = "Martyrdom",
+    tags    = { "priest-of-fire" },
     timed   = true,
     on      = { "Your faith is your armor and no mortal danger can steer you" },
     refresh = { "You feel your faith strenghten." },

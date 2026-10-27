@@ -22,9 +22,10 @@ luajit tests/test_effects.lua   # unit tests; exits non-zero on failure
 ```
 
 Run both after every change. To try a build in Mudlet, run
-`icefx reload <path to dist/IcesusEffects.mpackage>` once. The path is
-saved, so after that plain `icefx reload` is enough. Without a saved
-source, `icefx reload` installs the latest GitHub release instead.
+`icefx update <path to dist/IcesusEffects.mpackage>` once. The path is
+saved, so after that plain `icefx update` is enough. Without a saved
+source, `icefx update` installs the latest GitHub release if it is
+newer. (`icefx reload` is the old name for the same command.)
 
 Reload and update fetch URLs with `downloadFile` and only uninstall
 once the download has succeeded. Keep it that way: an uninstall
@@ -46,8 +47,8 @@ Mudlet runs the four files in the order listed in `SOURCES` in
 global `icesusfx` table, and each file starts with
 `local fx = icesusfx`.
 
-To ship a new effect, add an entry to `src/builtins.lua` and nothing
-else. Players get new entries on their next load. Changes to an existing
+To ship a new effect, add an entry to `src/builtins.lua`, tagged with
+the guild or race it comes from, and nothing else. Players get new entries on their next load. Changes to an existing
 entry reach players only through `icefx migrate`.
 
 ## Rules
@@ -128,5 +129,9 @@ To publish a release:
    new release.
 
 Update `README.md` whenever user-visible behaviour or commands change.
-The `icefx` help text is the `HELP` table in `controller.lua`; keep it
-in sync with the README command list.
+Commands and their help are one table, `fx.COMMANDS` in
+`controller.lua`: dispatch and `icefx help` are built from it, so a new
+command is one entry there. `main = true` puts it in plain `icefx`;
+keep that set short. Old command names go in `aliases`, not in the
+help. The settings list is `SETTING_HELP`. Keep both in sync with the
+README command list.
