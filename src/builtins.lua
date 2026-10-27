@@ -52,7 +52,7 @@ fx.BUILTIN = {
     label   = "Mantle of darkness",
     timed   = true,
     on      = { "Shadows around you flicker and grow and start moving like a pitch black ooze spreading itself" },
-    refresh = {},
+    refresh = { "Shadows around you take tighter grasp of you." },
     off     = { "Shadows enveloping you disperse." },
   },
   ["presence of the dark master"] = {
